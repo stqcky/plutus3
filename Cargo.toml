@@ -1,0 +1,25 @@
+[workspace]
+members = [ "bin/bot", "crates/blockchain","crates/defi/erc20", "crates/defi/protocols/protocol", "crates/defi/protocols/uniswap", "crates/evm", "crates/storage"]
+resolver = "2"
+
+[workspace.dependencies]
+plutus-blockchain = { path = "crates/blockchain" }
+
+plutus-defi-erc20 = { path = "crates/defi/erc20" }
+plutus-defi-protocols-protocol = { path = "crates/defi/protocols/protocol" }
+plutus-defi-protocols-uniswap = { path = "crates/defi/protocols/uniswap" }
+
+plutus-evm = { path = "crates/evm" }
+
+plutus-storage = { path = "crates/storage" }
+
+alloy = "0.9.2"
+revm = { git = "https://github.com/bluealloy/revm/" }
+anyhow = "1.0.95"
+dotenvy_macro = "0.15.7"
+tokio = "1.43.0"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
+sqlx = "0.8.3"
+hashbrown = "0.15.2"
+thiserror = "2.0.11"
