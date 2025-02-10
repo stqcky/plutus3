@@ -3,13 +3,17 @@ use std::str::FromStr;
 use alloy::primitives::{Address, BlockNumber};
 use anyhow::Context;
 use dotenvy_macro::dotenv;
-use pool::{PoolRecord, ProtocolType};
+use hashbrown::HashMap;
+use plutus_defi_protocols_protocol::ProtocolIdentifier;
 use sqlx::{Pool, Postgres, postgres::PgPoolOptions, query};
-
-pub mod pool;
 
 pub struct Storage {
     pool: Pool<Postgres>,
+}
+
+pub struct IdentifiedLiquidityPool {
+    pub address: Address,
+    pub protocol: ProtocolIdentifier,
 }
 
 impl Storage {
@@ -29,11 +33,11 @@ impl Storage {
 
     pub async fn get_last_discovered_block(
         &self,
-        protocol: ProtocolType,
+        protocol: ProtocolIdentifier,
     ) -> anyhow::Result<BlockNumber> {
         Ok(query!(
             "SELECT last_block FROM discovered WHERE protocol = $1",
-            protocol as i32
+            protocol.into_string()
         )
         .fetch_optional(&self.pool)
         .await
@@ -42,10 +46,26 @@ impl Storage {
         .unwrap_or_default())
     }
 
+    pub async fn get_last_discovered_blocks(
+        &self,
+        protocols: &[ProtocolIdentifier],
+    ) -> anyhow::Result<HashMap<ProtocolIdentifier, BlockNumber>> {
+        let mut last_discovered_blocks = HashMap::default();
+
+        for protocol in protocols.iter().cloned() {
+            last_discovered_blocks.insert(
+                protocol.clone(),
+                self.get_last_discovered_block(protocol).await?,
+            );
+        }
+
+        Ok(last_discovered_blocks)
+    }
+
     pub async fn set_last_discovered_block(
         &self,
         block: BlockNumber,
-        protocol: ProtocolType,
+        protocol: ProtocolIdentifier,
     ) -> anyhow::Result<()> {
         query!(
             r#"
@@ -54,7 +74,7 @@ impl Storage {
             ON CONFLICT (protocol) DO UPDATE
             SET last_block = $2
             "#,
-            protocol as i32,
+            protocol.into_string(),
             block as i64
         )
         .execute(&self.pool)
@@ -64,11 +84,15 @@ impl Storage {
         Ok(())
     }
 
-    pub async fn insert_pool(&self, pool: &PoolRecord) -> anyhow::Result<()> {
+    pub async fn insert_pool(
+        &self,
+        pool: Address,
+        protocol: ProtocolIdentifier,
+    ) -> anyhow::Result<()> {
         query!(
             "INSERT INTO pool (address, protocol) VALUES ($1, $2)",
-            pool.address.to_string(),
-            pool.protocol as i32
+            pool.to_string(),
+            protocol.into_string()
         )
         .execute(&self.pool)
         .await
@@ -77,28 +101,36 @@ impl Storage {
         Ok(())
     }
 
-    pub async fn insert_pools(&self, pools: &[PoolRecord]) -> anyhow::Result<()> {
-        for pool in pools {
-            self.insert_pool(pool).await?;
+    pub async fn insert_pools(
+        &self,
+        pools: &HashMap<ProtocolIdentifier, Vec<Address>>,
+    ) -> anyhow::Result<()> {
+        for (protocol, pools) in pools {
+            for pool in pools {
+                self.insert_pool(*pool, protocol.to_owned()).await?;
+            }
         }
 
         Ok(())
     }
 
-    pub async fn get_pools(&self) -> anyhow::Result<Vec<PoolRecord>> {
+    pub async fn get_pools(&self) -> anyhow::Result<Vec<IdentifiedLiquidityPool>> {
         Ok(query!("SELECT address, protocol FROM pool")
             .fetch_all(&self.pool)
             .await
             .context("failed to get pools")?
             .into_iter()
-            .map(|record| PoolRecord {
+            .map(|record| IdentifiedLiquidityPool {
                 address: Address::from_str(&record.address).expect("address is correct"),
                 protocol: record.protocol.into(),
             })
             .collect())
     }
 
-    pub async fn get_filtered_pools(&self, hash: u64) -> anyhow::Result<Option<Vec<PoolRecord>>> {
+    pub async fn get_filtered_pools(
+        &self,
+        hash: u64,
+    ) -> anyhow::Result<Option<Vec<IdentifiedLiquidityPool>>> {
         let stored_hash = query!("SELECT filter_hash FROM state")
             .fetch_one(&self.pool)
             .await
@@ -115,7 +147,7 @@ impl Storage {
                 .await
                 .context("failed to get filtered pools")?
                 .into_iter()
-                .map(|record| PoolRecord {
+                .map(|record| IdentifiedLiquidityPool {
                     address: Address::from_str(&record.address).expect("address is correct"),
                     protocol: record.protocol.into(),
                 })
@@ -125,7 +157,7 @@ impl Storage {
 
     pub async fn insert_filtered_pools(
         &self,
-        pools: &[PoolRecord],
+        pools: &[IdentifiedLiquidityPool],
         hash: u64,
     ) -> anyhow::Result<()> {
         query!("UPDATE state SET filter_hash = $1", hash as i64)
@@ -145,11 +177,11 @@ impl Storage {
         Ok(())
     }
 
-    async fn insert_filtered_pool(&self, pool: &PoolRecord) -> anyhow::Result<()> {
+    async fn insert_filtered_pool(&self, pool: &IdentifiedLiquidityPool) -> anyhow::Result<()> {
         query!(
             "INSERT INTO filtered_pool (address, protocol) VALUES ($1, $2)",
             pool.address.to_string(),
-            pool.protocol as i32
+            pool.protocol.clone().into_string()
         )
         .execute(&self.pool)
         .await
@@ -164,45 +196,45 @@ mod tests {
     use alloy::primitives::{BlockNumber, address};
     use sqlx::{Pool, Postgres};
 
-    use crate::{
-        Storage,
-        pool::{PoolRecord, ProtocolType},
-    };
+    use crate::{IdentifiedLiquidityPool, Storage};
 
     #[sqlx::test]
     async fn it_updates_last_discovered_block(pool: Pool<Postgres>) {
         let storage = Storage::new_with_pool(pool);
 
-        let set = async |block: BlockNumber, protocol: ProtocolType| {
+        let set = async |block: BlockNumber, protocol: &str| {
             storage
-                .set_last_discovered_block(block, protocol)
+                .set_last_discovered_block(block, protocol.into())
                 .await
                 .unwrap()
         };
 
-        let get = async |protocol: ProtocolType| {
-            storage.get_last_discovered_block(protocol).await.unwrap()
+        let get = async |protocol: &str| {
+            storage
+                .get_last_discovered_block(protocol.into())
+                .await
+                .unwrap()
         };
 
-        assert_eq!(get(ProtocolType::UniswapV2).await, 0);
+        assert_eq!(get("uniswap_v2").await, 0);
 
-        set(1337, ProtocolType::UniswapV2).await;
-        assert_eq!(get(ProtocolType::UniswapV2).await, 1337);
+        set(1337, "uniswap_v2").await;
+        assert_eq!(get("uniswap_v2").await, 1337);
 
-        set(777, ProtocolType::UniswapV2).await;
-        assert_eq!(get(ProtocolType::UniswapV2).await, 777);
+        set(777, "uniswap_v2").await;
+        assert_eq!(get("uniswap_v2").await, 777);
 
-        set(100, ProtocolType::UniswapV3).await;
-        assert_eq!(get(ProtocolType::UniswapV3).await, 100);
+        set(100, "uniswap_v3").await;
+        assert_eq!(get("uniswap_v3").await, 100);
     }
 
     #[sqlx::test]
     async fn it_inserts_pools(pool: Pool<Postgres>) {
         let storage = Storage::new_with_pool(pool);
 
-        let pool = PoolRecord {
+        let pool = IdentifiedLiquidityPool {
             address: address!("1111111111111111111111111111111111111111"),
-            protocol: ProtocolType::UniswapV2,
+            protocol: "uniswap_v2".into(),
         };
 
         storage.insert_pool(&pool).await.unwrap();
@@ -216,13 +248,13 @@ mod tests {
         assert_eq!(storage.insert_pool(&pool).await.is_err(), true);
 
         let pools = vec![
-            PoolRecord {
+            IdentifiedLiquidityPool {
                 address: address!("2222222222222222222222222222222222222222"),
-                protocol: ProtocolType::UniswapV2,
+                protocol: "uniswap_v2".into(),
             },
-            PoolRecord {
+            IdentifiedLiquidityPool {
                 address: address!("3333333333333333333333333333333333333333"),
-                protocol: ProtocolType::UniswapV3,
+                protocol: "uniswap_v3".into(),
             },
         ];
 
@@ -241,13 +273,13 @@ mod tests {
         );
 
         let pools = vec![
-            PoolRecord {
+            IdentifiedLiquidityPool {
                 address: address!("1111111111111111111111111111111111111111"),
-                protocol: ProtocolType::UniswapV2,
+                protocol: "uniswap_v2".into(),
             },
-            PoolRecord {
+            IdentifiedLiquidityPool {
                 address: address!("2222222222222222222222222222222222222222"),
-                protocol: ProtocolType::UniswapV3,
+                protocol: "uniswap_v3".into(),
             },
         ];
 

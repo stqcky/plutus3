@@ -1,17 +1,13 @@
 [package]
-name = "bot"
+name = "bootstrap-arbitrum-discovery"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-plutus-blockchain.workspace = true
-
 alloy = { workspace = true, features = ["full"] }
 anyhow.workspace = true
 dotenvy_macro.workspace = true
 tokio = { workspace = true, features = ["full"] }
-tracing.workspace = true
-tracing-subscriber.workspace = true
 plutus-storage.workspace = true
 plutus-defi-protocols-protocol.workspace = true
 plutus-defi-protocols-uniswap.workspace = true

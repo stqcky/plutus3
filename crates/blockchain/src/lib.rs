@@ -4,8 +4,8 @@ use address_book::{AddressBook, get_address_book_for_chain};
 use alloy::primitives::ChainId;
 
 pub struct Blockchain {
-    chain_id: ChainId,
-    address_book: AddressBook,
+    pub chain_id: ChainId,
+    pub address_book: AddressBook,
 }
 
 impl Blockchain {

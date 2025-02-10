@@ -1,6 +1,13 @@
 [package]
-name = "plutus-protocols-uniswap"
+name = "plutus-defi-protocols-uniswap"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+alloy.workspace = true
+hashbrown.workspace = true
+plutus-defi-protocols-protocol.workspace = true
+lazy_static.workspace = true
+plutus-defi-erc20.workspace = true
+plutus-evm.workspace = true
+async-trait.workspace = true

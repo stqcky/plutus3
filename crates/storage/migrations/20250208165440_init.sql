@@ -1,5 +1,5 @@
 CREATE TABLE discovered (
-    protocol INT PRIMARY KEY NOT NULL,
+    protocol VARCHAR(40) PRIMARY KEY NOT NULL,
     last_block BIGINT NOT NULL
 );
 
@@ -10,13 +10,13 @@ CREATE TABLE state (
 CREATE TABLE pool (
     id SERIAL PRIMARY KEY,
     address CHAR(42) UNIQUE NOT NULL,
-    protocol INT NOT NULL
+    protocol VARCHAR(40) NOT NULL
 );
 
 CREATE TABLE filtered_pool (
     id SERIAL PRIMARY KEY,
     address CHAR(42) UNIQUE NOT NULL,
-    protocol INT NOT NULL
+    protocol VARCHAR(40) NOT NULL
 );
 
 INSERT INTO state (filter_hash) VALUES (0);
