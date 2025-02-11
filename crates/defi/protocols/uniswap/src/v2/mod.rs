@@ -8,6 +8,7 @@ use plutus_defi_protocols_protocol::{
     DiscoverableProtocol, Protocol, ProtocolFactory, pool::LiquidityPool,
 };
 
+mod decoding;
 pub mod factory;
 pub mod pool;
 

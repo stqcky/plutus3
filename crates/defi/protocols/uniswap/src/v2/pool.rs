@@ -4,17 +4,19 @@ use alloy::{
     providers::Provider,
     sol,
     sol_types::SolCall,
+    uint,
 };
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::pool::LiquidityPool;
-use plutus_evm::EVM;
+use plutus_evm::{EVM, contract::SmartContract, smart_contract, storage::FromStorageValue};
 
 sol!(
     #[sol(rpc)]
     contract IUniswapV2Pool {
         address public factory;
-        address public token0;
-        address public token1;
+
+        function token0() public returns (address);
+        function token1() public returns (address);
 
         uint112 private reserve0;
         uint112 private reserve1;
@@ -24,20 +26,14 @@ sol!(
 );
 
 pub struct UniswapV2Pool {
-    address: Address,
-
-    token0: ERC20,
-    token1: ERC20,
-
+    token0: Address,
+    token1: Address,
     reserves: Reserves,
 }
 
-impl UniswapV2Pool {
-    pub fn new<P: Provider + std::fmt::Debug>(address: Address, evm: &mut EVM<P>) {
-        evm.call(address, token0Call::new(()))
-            .unwrap()
-            .output
-            .token0;
+impl FromStorageValue for Reserves {
+    fn from_storage_value(value: U256) -> Self {
+        todo!()
     }
 }
 

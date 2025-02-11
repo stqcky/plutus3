@@ -1,0 +1,9 @@
+[package]
+name = "plutus-evm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+plutus-evm-core.workspace = true
+plutus-evm-procmacro.workspace = true
+alloy.workspace = true

@@ -6,12 +6,12 @@ use revm::{
 };
 use thiserror::Error;
 
-use crate::EvmDatabase;
-
 #[derive(Error, Debug)]
 pub enum EvmCallError<P: Provider> {
     #[error("invalid transaction: {0}")]
-    InvalidTransaction(#[from] EVMError<<EvmDatabase<P> as Database>::Error, InvalidTransaction>),
+    InvalidTransaction(
+        #[from] EVMError<<crate::EvmDatabase<P> as Database>::Error, InvalidTransaction>,
+    ),
 
     #[error("transaction reverted")]
     Revert { reason: RevertReason, gas_used: u64 },

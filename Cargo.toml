@@ -1,5 +1,18 @@
 [workspace]
-members = [ "bin/bootstrap-arbitrum-discovery", "bin/bot", "bin/playground", "crates/blockchain","crates/defi/erc20", "crates/defi/protocols/protocol", "crates/defi/protocols/uniswap", "crates/evm", "crates/storage"]
+members = [ 
+    "bin/bootstrap-arbitrum-discovery", 
+    "bin/bot", 
+    "bin/playground", 
+    "crates/blockchain",
+    "crates/defi/erc20", 
+    "crates/defi/protocols/protocol", 
+    "crates/defi/protocols/uniswap", 
+    "crates/evm/evm", 
+    "crates/evm/evm-core", 
+    "crates/evm/evm-procmacro", 
+    "crates/storage"
+]
+
 resolver = "2"
 
 [workspace.dependencies]
@@ -9,7 +22,9 @@ plutus-defi-erc20 = { path = "crates/defi/erc20" }
 plutus-defi-protocols-protocol = { path = "crates/defi/protocols/protocol" }
 plutus-defi-protocols-uniswap = { path = "crates/defi/protocols/uniswap" }
 
-plutus-evm = { path = "crates/evm" }
+plutus-evm = { path = "crates/evm/evm" }
+plutus-evm-core = { path = "crates/evm/evm-core" }
+plutus-evm-procmacro = { path = "crates/evm/evm-procmacro" }
 
 plutus-storage = { path = "crates/storage" }
 
@@ -25,6 +40,10 @@ thiserror = "2.0.11"
 lazy_static = "1.5.0"
 derive_more = "2.0.1"
 async-trait = "0.1.86"
+
+proc-macro2 = "1.0.93"
+quote = "1.0.38"
+syn = "2.0.98"
 
 revm = { git = "https://github.com/bluealloy/revm/" }
 revm-database = { git = "https://github.com/bluealloy/revm/" }

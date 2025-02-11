@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-alloy.workspace = true
+alloy = { workspace = true, features = ["providers", "contract"] }
 hashbrown.workspace = true
 plutus-defi-protocols-protocol.workspace = true
 lazy_static.workspace = true

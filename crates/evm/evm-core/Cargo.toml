@@ -1,5 +1,5 @@
 [package]
-name = "plutus-evm"
+name = "plutus-evm-core"
 version = "0.1.0"
 edition = "2024"
 
@@ -11,3 +11,4 @@ alloy.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 derive_more = { workspace = true, features = ["full"] }
+hashbrown.workspace = true

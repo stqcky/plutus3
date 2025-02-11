@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use IUniswapV2Factory::{IUniswapV2FactoryInstance, PairCreated, getPairCall};
 use alloy::{
     primitives::{Address, BlockNumber, ChainId, address},

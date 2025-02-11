@@ -1,3 +1,4 @@
+use crate::errors::EvmCallError;
 use alloy::{
     network::Ethereum,
     primitives::ChainId,
@@ -6,22 +7,15 @@ use alloy::{
     transports::BoxTransport,
 };
 use anyhow::Context as _;
-use errors::EvmCallError;
 use revm::{
-    Context, ExecuteEvm, MainBuilder, MainContext,
+    Context, Database as _, ExecuteEvm, MainBuilder, MainContext,
     context_interface::result::{ExecutionResult, Output},
     database_interface::WrapDatabaseAsync,
-    primitives::{Address, TxKind},
+    primitives::{Address, TxKind, U256},
 };
 use revm_database::{AlloyDB, BlockId, CacheDB};
 
-pub use revm;
-
-pub mod errors;
-pub mod storage;
-mod test;
-
-type EvmDatabase<P> = CacheDB<WrapDatabaseAsync<AlloyDB<BoxTransport, Ethereum, P>>>;
+pub type EvmDatabase<P> = CacheDB<WrapDatabaseAsync<AlloyDB<BoxTransport, Ethereum, P>>>;
 
 pub struct EVM<P: Provider> {
     db: EvmDatabase<P>,
@@ -44,6 +38,10 @@ impl<P: Provider> EVM<P> {
         let db = CacheDB::new(WrapDatabaseAsync::new(alloydb).context("failed to wrap database")?);
 
         Ok(Self { db, chain_id })
+    }
+
+    pub fn storage(&mut self, address: Address, slot: U256) -> U256 {
+        self.db.storage(address, slot).unwrap_or_default()
     }
 
     pub fn call<T: SolCall>(
