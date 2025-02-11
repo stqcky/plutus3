@@ -1,4 +1,7 @@
-use alloy::primitives::{Address, BlockNumber, ChainId};
+use alloy::{
+    primitives::{Address, BlockNumber, ChainId},
+    providers::Provider,
+};
 use anyhow::Context;
 use hashbrown::HashMap;
 
@@ -10,13 +13,16 @@ pub struct ProtocolRegistry<P> {
     protocols: HashMap<ProtocolIdentifier, Box<dyn DiscoverableProtocol<P>>>,
 }
 
-impl<P> ProtocolRegistry<P> {
-    pub fn new(chain_id: ChainId, provider: P) -> Self {
-        Self {
-            chain_id,
+impl<P: Provider> ProtocolRegistry<P> {
+    pub async fn new(provider: P) -> anyhow::Result<Self> {
+        Ok(Self {
+            chain_id: provider
+                .get_chain_id()
+                .await
+                .context("failed to get chain id")?,
             protocols: HashMap::default(),
             provider,
-        }
+        })
     }
 
     pub fn with<F: ProtocolFactory<P> + 'static>(mut self) -> anyhow::Result<Self> {

@@ -33,7 +33,8 @@ async fn main() -> anyhow::Result<()> {
     let blockchain = Blockchain::new(provider.get_chain_id().await?);
     let storage = Storage::new().await?;
 
-    let protocol_registry = ProtocolRegistry::new(blockchain.chain_id, provider.clone())
+    let protocol_registry = ProtocolRegistry::new(provider.clone())
+        .await?
         .with::<UniswapV2Protocol>()?
         .with::<UniswapV3Protocol>()?;
 
@@ -44,12 +45,10 @@ async fn main() -> anyhow::Result<()> {
     )
     .await?;
 
-    // tracing::info!("{discovered:#?}");
-
     Ok(())
 }
 
-async fn discover_and_store_pools<P: Clone>(
+async fn discover_and_store_pools<P: Provider + Clone>(
     registry: &ProtocolRegistry<P>,
     storage: &Storage,
     block_number: BlockNumber,
