@@ -455,6 +455,25 @@ impl<P: Provider> LiquidityPool<P> for UniswapV3Pool {
             && sqrt_price_x96 > MIN_SQRT_RATIO + U256::from(1)
             && sqrt_price_x96 < MAX_SQRT_RATIO - U256::from(1)
     }
+
+    fn tokens(&self) -> (Address, Address) {
+        (self.token0.address, self.token1.address)
+    }
+
+    fn tokens_locked(&self, evm: &mut EVM<P>) -> Result<(U256, U256), EvmCallError<P>> {
+        Ok((
+            self.token0.balance_of(self.address, evm)?,
+            self.token1.balance_of(self.address, evm)?,
+        ))
+    }
+
+    fn identifier(&self) -> &'static str {
+        "uniswap_v3"
+    }
+
+    fn address(&self) -> Address {
+        self.address
+    }
 }
 
 impl StorageDecodable for TickInfo {

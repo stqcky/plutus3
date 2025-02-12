@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 plutus-storage.workspace = true
 plutus-evm.workspace = true
+plutus-defi-erc20.workspace = true
 
 alloy.workspace = true
 anyhow.workspace = true
@@ -13,3 +14,4 @@ async-trait.workspace = true
 derive_more.workspace = true
 hashbrown.workspace = true
 tokio.workspace = true
+tracing.workspace = true

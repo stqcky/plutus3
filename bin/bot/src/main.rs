@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use alloy::{
     providers::{Provider, ProviderBuilder},
@@ -8,6 +8,7 @@ use dotenvy_macro::dotenv;
 use plutus_blockchain::Blockchain;
 use plutus_defi_protocols_protocol::registry::ProtocolRegistry;
 use plutus_defi_protocols_uniswap::{v2::UniswapV2Protocol, v3::UniswapV3Protocol};
+use plutus_evm::EVM;
 use plutus_storage::Storage;
 
 fn init_tracing() {
@@ -15,6 +16,8 @@ fn init_tracing() {
         .event_format(tracing_subscriber::fmt::format().without_time().compact())
         .init();
 }
+
+const UPDATE_CACHE: bool = true;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -29,6 +32,8 @@ async fn main() -> anyhow::Result<()> {
         ),
     );
 
+    let block_number = provider.get_block_number().await?;
+
     let blockchain = Blockchain::new(provider.get_chain_id().await?);
     let storage = Storage::new().await?;
 
@@ -38,8 +43,32 @@ async fn main() -> anyhow::Result<()> {
         .with::<UniswapV3Protocol>()?;
 
     protocol_registry
-        .discover_and_store(provider.get_block_number().await?, &storage)
+        .discover_and_store(block_number, &storage)
         .await?;
+
+    let mut evm = EVM::new(provider.clone(), block_number.into()).await?;
+
+    let pools = if UPDATE_CACHE {
+        tracing::info!("updating cache");
+
+        let now = Instant::now();
+
+        let filtered = protocol_registry
+            .get_filtered_pools(&storage, &mut evm, 5_000.0)
+            .await?;
+
+        protocol_registry
+            .cache_filtered_pools(&storage, &filtered)
+            .await?;
+
+        tracing::info!("filtered in {:?}", now.elapsed());
+
+        filtered
+    } else {
+        protocol_registry
+            .get_cached_filtered_pools(&storage, &mut evm)
+            .await?
+    };
 
     Ok(())
 }

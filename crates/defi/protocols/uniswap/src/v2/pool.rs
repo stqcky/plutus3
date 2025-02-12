@@ -47,8 +47,9 @@ impl UniswapV2Pool {
     }
 
     pub fn swap(amount_in: U256, reserve_in: U256, reserve_out: U256) -> U256 {
-        assert!(!amount_in.is_zero());
-        assert!(!reserve_in.is_zero() && !reserve_out.is_zero());
+        if amount_in.is_zero() || reserve_in.is_zero() || reserve_out.is_zero() {
+            return U256::ZERO;
+        }
 
         let amount_in_with_fee = amount_in * U256::from(997);
         let numerator = amount_in_with_fee * reserve_out;
@@ -90,5 +91,21 @@ impl<P: Provider> LiquidityPool<P> for UniswapV2Pool {
 
     fn is_liquidity_valid(&self) -> bool {
         !self.reserves.0.is_zero() && !self.reserves.1.is_zero()
+    }
+
+    fn tokens(&self) -> (Address, Address) {
+        (self.token0.address, self.token1.address)
+    }
+
+    fn tokens_locked(&self, _evm: &mut EVM<P>) -> Result<(U256, U256), EvmCallError<P>> {
+        Ok((U256::from(self.reserves.0), U256::from(self.reserves.1)))
+    }
+
+    fn identifier(&self) -> &'static str {
+        "uniswap_v2"
+    }
+
+    fn address(&self) -> Address {
+        self.address
     }
 }

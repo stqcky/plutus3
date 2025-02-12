@@ -1016,6 +1016,7 @@ dependencies = [
  "plutus-blockchain",
  "plutus-defi-protocols-protocol",
  "plutus-defi-protocols-uniswap",
+ "plutus-evm",
  "plutus-storage",
  "tokio",
  "tracing",
@@ -2844,9 +2845,11 @@ dependencies = [
  "async-trait",
  "derive_more 2.0.1",
  "hashbrown 0.15.2",
+ "plutus-defi-erc20",
  "plutus-evm",
  "plutus-storage",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
