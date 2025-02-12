@@ -4,7 +4,6 @@ use alloy::primitives::{Address, BlockNumber};
 use anyhow::Context;
 use dotenvy_macro::dotenv;
 use hashbrown::HashMap;
-use plutus_defi_protocols_protocol::ProtocolIdentifier;
 use sqlx::{Pool, Postgres, postgres::PgPoolOptions, query};
 
 pub struct Storage {
@@ -13,7 +12,7 @@ pub struct Storage {
 
 pub struct IdentifiedLiquidityPool {
     pub address: Address,
-    pub protocol: ProtocolIdentifier,
+    pub protocol: String,
 }
 
 impl Storage {
@@ -31,13 +30,10 @@ impl Storage {
         Self { pool }
     }
 
-    pub async fn get_last_discovered_block(
-        &self,
-        protocol: ProtocolIdentifier,
-    ) -> anyhow::Result<BlockNumber> {
+    pub async fn get_last_discovered_block(&self, protocol: &str) -> anyhow::Result<BlockNumber> {
         Ok(query!(
             "SELECT last_block FROM discovered WHERE protocol = $1",
-            protocol.into_string()
+            protocol
         )
         .fetch_optional(&self.pool)
         .await
@@ -48,14 +44,14 @@ impl Storage {
 
     pub async fn get_last_discovered_blocks(
         &self,
-        protocols: &[ProtocolIdentifier],
-    ) -> anyhow::Result<HashMap<ProtocolIdentifier, BlockNumber>> {
+        protocols: &[String],
+    ) -> anyhow::Result<HashMap<String, BlockNumber>> {
         let mut last_discovered_blocks = HashMap::default();
 
         for protocol in protocols.iter().cloned() {
             last_discovered_blocks.insert(
-                protocol.clone(),
-                self.get_last_discovered_block(protocol).await?,
+                protocol.to_string(),
+                self.get_last_discovered_block(&protocol).await?,
             );
         }
 
@@ -65,7 +61,7 @@ impl Storage {
     pub async fn set_last_discovered_block(
         &self,
         block: BlockNumber,
-        protocol: ProtocolIdentifier,
+        protocol: &str,
     ) -> anyhow::Result<()> {
         query!(
             r#"
@@ -74,7 +70,7 @@ impl Storage {
             ON CONFLICT (protocol) DO UPDATE
             SET last_block = $2
             "#,
-            protocol.into_string(),
+            protocol,
             block as i64
         )
         .execute(&self.pool)
@@ -84,15 +80,11 @@ impl Storage {
         Ok(())
     }
 
-    pub async fn insert_pool(
-        &self,
-        pool: Address,
-        protocol: ProtocolIdentifier,
-    ) -> anyhow::Result<()> {
+    pub async fn insert_pool(&self, pool: Address, protocol: &str) -> anyhow::Result<()> {
         query!(
             "INSERT INTO pool (address, protocol) VALUES ($1, $2)",
             pool.to_string(),
-            protocol.into_string()
+            protocol
         )
         .execute(&self.pool)
         .await
@@ -101,13 +93,10 @@ impl Storage {
         Ok(())
     }
 
-    pub async fn insert_pools(
-        &self,
-        pools: &HashMap<ProtocolIdentifier, Vec<Address>>,
-    ) -> anyhow::Result<()> {
+    pub async fn insert_pools(&self, pools: &HashMap<String, Vec<Address>>) -> anyhow::Result<()> {
         for (protocol, pools) in pools {
             for pool in pools {
-                self.insert_pool(*pool, protocol.to_owned()).await?;
+                self.insert_pool(*pool, &protocol).await?;
             }
         }
 
@@ -181,7 +170,7 @@ impl Storage {
         query!(
             "INSERT INTO filtered_pool (address, protocol) VALUES ($1, $2)",
             pool.address.to_string(),
-            pool.protocol.clone().into_string()
+            &pool.protocol
         )
         .execute(&self.pool)
         .await
@@ -194,6 +183,7 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{BlockNumber, address};
+    use hashbrown::HashMap;
     use sqlx::{Pool, Postgres};
 
     use crate::{IdentifiedLiquidityPool, Storage};
@@ -232,33 +222,45 @@ mod tests {
     async fn it_inserts_pools(pool: Pool<Postgres>) {
         let storage = Storage::new_with_pool(pool);
 
-        let pool = IdentifiedLiquidityPool {
-            address: address!("1111111111111111111111111111111111111111"),
-            protocol: "uniswap_v2".into(),
-        };
-
-        storage.insert_pool(&pool).await.unwrap();
+        storage
+            .insert_pool(
+                address!("1111111111111111111111111111111111111111"),
+                "uniswap_v2",
+            )
+            .await
+            .unwrap();
 
         let pools = storage.get_pools().await.unwrap();
 
         assert_eq!(pools.len(), 1);
-        assert_eq!(pools[0].address, pool.address);
-        assert_eq!(pools[0].protocol, pool.protocol);
+        assert_eq!(
+            pools[0].address,
+            address!("1111111111111111111111111111111111111111")
+        );
+        assert_eq!(pools[0].protocol, "uniswap_v2");
 
-        assert_eq!(storage.insert_pool(&pool).await.is_err(), true);
+        assert_eq!(
+            storage
+                .insert_pool(
+                    address!("1111111111111111111111111111111111111111"),
+                    "uniswap_v2",
+                )
+                .await
+                .is_err(),
+            true
+        );
 
-        let pools = vec![
-            IdentifiedLiquidityPool {
-                address: address!("2222222222222222222222222222222222222222"),
-                protocol: "uniswap_v2".into(),
-            },
-            IdentifiedLiquidityPool {
-                address: address!("3333333333333333333333333333333333333333"),
-                protocol: "uniswap_v3".into(),
-            },
-        ];
-
-        storage.insert_pools(&pools).await.unwrap();
+        storage
+            .insert_pools(&HashMap::from_iter([
+                ("uniswap_v2".to_string(), vec![address!(
+                    "2222222222222222222222222222222222222222"
+                )]),
+                ("uniswap_v3".to_string(), vec![address!(
+                    "3333333333333333333333333333333333333333"
+                )]),
+            ]))
+            .await
+            .unwrap();
 
         assert_eq!(storage.get_pools().await.unwrap().len(), 3);
     }

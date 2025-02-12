@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-plutus-defi-protocols-protocol.workspace = true
-
 alloy.workspace = true
 anyhow.workspace = true
 dotenvy_macro.workspace = true

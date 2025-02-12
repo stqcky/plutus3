@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+plutus-storage.workspace = true
+
 alloy.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true

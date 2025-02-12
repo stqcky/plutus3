@@ -2836,6 +2836,7 @@ dependencies = [
  "async-trait",
  "derive_more 2.0.1",
  "hashbrown 0.15.2",
+ "plutus-storage",
  "tokio",
 ]
 
@@ -2893,7 +2894,6 @@ dependencies = [
  "anyhow",
  "dotenvy_macro",
  "hashbrown 0.15.2",
- "plutus-defi-protocols-protocol",
  "sqlx",
 ]
 

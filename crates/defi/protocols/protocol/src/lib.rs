@@ -1,25 +1,9 @@
 use alloy::primitives::{Address, BlockNumber, ChainId};
 use async_trait::async_trait;
-use derive_more::{Display, From, Into};
 use pool::LiquidityPool;
 
 pub mod pool;
 pub mod registry;
-
-#[derive(Clone, Debug, From, Into, PartialEq, Eq, Hash, Display)]
-pub struct ProtocolIdentifier(String);
-
-impl From<&str> for ProtocolIdentifier {
-    fn from(value: &str) -> Self {
-        Self(value.to_string())
-    }
-}
-
-impl ProtocolIdentifier {
-    pub fn into_string(self) -> String {
-        self.0
-    }
-}
 
 pub trait Protocol {
     fn get_pools(&self, token0: Address, token1: Address) -> Vec<Box<dyn LiquidityPool>>;

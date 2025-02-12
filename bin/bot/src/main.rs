@@ -38,36 +38,9 @@ async fn main() -> anyhow::Result<()> {
         .with::<UniswapV2Protocol>()?
         .with::<UniswapV3Protocol>()?;
 
-    discover_and_store_pools(
-        &protocol_registry,
-        &storage,
-        provider.get_block_number().await?,
-    )
-    .await?;
-
-    Ok(())
-}
-
-async fn discover_and_store_pools<P: Provider + Clone>(
-    registry: &ProtocolRegistry<P>,
-    storage: &Storage,
-    block_number: BlockNumber,
-) -> anyhow::Result<()> {
-    let last_discovered_blocks = storage
-        .get_last_discovered_blocks(&registry.protocol_identifiers())
+    protocol_registry
+        .discover_and_store(provider.get_block_number().await?, &storage)
         .await?;
-
-    let discovered = registry
-        .discover(&last_discovered_blocks, block_number)
-        .await?;
-
-    storage.insert_pools(&discovered).await?;
-
-    for (protocol, _) in discovered {
-        storage
-            .set_last_discovered_block(block_number, protocol)
-            .await?;
-    }
 
     Ok(())
 }

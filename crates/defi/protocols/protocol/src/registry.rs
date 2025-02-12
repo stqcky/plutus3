@@ -4,13 +4,14 @@ use alloy::{
 };
 use anyhow::Context;
 use hashbrown::HashMap;
+use plutus_storage::Storage;
 
-use crate::{DiscoverableProtocol, ProtocolFactory, ProtocolIdentifier};
+use crate::{DiscoverableProtocol, ProtocolFactory};
 
 pub struct ProtocolRegistry<P> {
     chain_id: ChainId,
     provider: P,
-    protocols: HashMap<ProtocolIdentifier, Box<dyn DiscoverableProtocol<P>>>,
+    protocols: HashMap<String, Box<dyn DiscoverableProtocol<P>>>,
 }
 
 impl<P: Provider> ProtocolRegistry<P> {
@@ -39,9 +40,9 @@ impl<P: Provider> ProtocolRegistry<P> {
 
     pub async fn discover(
         &self,
-        discovered_blocks: &HashMap<ProtocolIdentifier, BlockNumber>,
+        discovered_blocks: &HashMap<String, BlockNumber>,
         to: BlockNumber,
-    ) -> anyhow::Result<HashMap<ProtocolIdentifier, Vec<Address>>>
+    ) -> anyhow::Result<HashMap<String, Vec<Address>>>
     where
         P: Clone,
     {
@@ -66,7 +67,26 @@ impl<P: Provider> ProtocolRegistry<P> {
         Ok(discovered)
     }
 
-    pub fn protocol_identifiers(&self) -> Vec<ProtocolIdentifier> {
+    pub async fn discover_and_store(&self, to: BlockNumber, storage: &Storage) -> anyhow::Result<()>
+    where
+        P: Clone,
+    {
+        let last_discovered_blocks = storage
+            .get_last_discovered_blocks(&self.protocol_identifiers())
+            .await?;
+
+        let discovered = self.discover(&last_discovered_blocks, to).await?;
+
+        storage.insert_pools(&discovered).await?;
+
+        for (protocol, _) in discovered {
+            storage.set_last_discovered_block(to, &protocol).await?;
+        }
+
+        Ok(())
+    }
+
+    pub fn protocol_identifiers(&self) -> Vec<String> {
         self.protocols.keys().cloned().collect()
     }
 }
