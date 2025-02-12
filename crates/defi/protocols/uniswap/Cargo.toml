@@ -4,10 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-alloy = { workspace = true, features = ["providers", "contract"] }
-hashbrown.workspace = true
 plutus-defi-protocols-protocol.workspace = true
-lazy_static.workspace = true
 plutus-defi-erc20.workspace = true
 plutus-evm.workspace = true
+
+alloy = { workspace = true, features = ["providers", "contract"] }
+hashbrown.workspace = true
+lazy_static.workspace = true
 async-trait.workspace = true
+anyhow.workspace = true
+uniswap_v3_math.workspace = true
+strum = { workspace = true, features = ["derive"] }

@@ -1,12 +1,9 @@
-use alloy::{
-    primitives::{Signed, Uint},
-    providers::Provider,
-    uint,
-};
-use revm::primitives::{Address, I256, U256, map::B256Map};
+use alloy::providers::Provider;
+use revm::primitives::{Address, U256, map::B256Map};
 
 use crate::EVM;
 
+#[derive(Debug, Clone)]
 pub struct SmartContractStorage {
     address: Address,
     storage: B256Map<U256>,
@@ -25,6 +22,21 @@ impl SmartContractStorage {
             .storage
             .entry(slot.into())
             .or_insert_with(|| evm.storage(self.address, slot))
+    }
+
+    pub fn get_consecutive<P: Provider>(
+        &mut self,
+        slot: U256,
+        amount: usize,
+        evm: &mut EVM<P>,
+    ) -> Vec<U256> {
+        let mut values = Vec::with_capacity(amount);
+
+        for i in 0..amount {
+            values.push(self.get(slot + U256::from(i), evm))
+        }
+
+        values
     }
 
     pub fn insert(&mut self, slot: U256, value: U256) {

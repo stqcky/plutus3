@@ -1,11 +1,15 @@
-use IUniswapV3Factory::{IUniswapV3FactoryInstance, PoolCreated};
+use IUniswapV3Factory::{IUniswapV3FactoryInstance, PoolCreated, getPoolCall};
 use alloy::{
-    primitives::{Address, BlockNumber, ChainId, address},
+    primitives::{Address, BlockNumber, ChainId, address, aliases::U24},
     providers::Provider,
     sol,
+    sol_types::SolCall as _,
 };
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
+use plutus_evm::{EVM, errors::EvmCallError};
+
+use super::{fee::FeeAmount, pool::UniswapV3Pool};
 
 lazy_static! {
     pub static ref FACTORY_ADDRESS: HashMap<ChainId, Address> =
@@ -38,6 +42,28 @@ pub struct UniswapV3Factory {
 impl UniswapV3Factory {
     pub fn new(address: Address) -> Self {
         Self { address }
+    }
+
+    pub fn get_pool<P: Provider>(
+        &self,
+        token0: Address,
+        token1: Address,
+        fee: FeeAmount,
+        evm: &mut EVM<P>,
+    ) -> Result<Option<UniswapV3Pool>, EvmCallError<P>> {
+        let address = evm
+            .call(
+                self.address,
+                getPoolCall::new((token0, token1, U24::from(fee as u32))),
+            )?
+            .output
+            .pool;
+
+        if address.is_zero() {
+            Ok(None)
+        } else {
+            Ok(Some(UniswapV3Pool::new(address, evm)?))
+        }
     }
 
     pub async fn pool_created_events<P: Provider>(

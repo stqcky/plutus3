@@ -36,11 +36,17 @@ impl UniswapV2Factory {
         token0: Address,
         token1: Address,
         evm: &mut EVM<P>,
-    ) -> Result<Address, EvmCallError<P>> {
-        Ok(evm
+    ) -> Result<Option<Address>, EvmCallError<P>> {
+        let address = evm
             .call(self.address, getPairCall::new((token0, token1)))?
             .output
-            ._0)
+            ._0;
+
+        if address.is_zero() {
+            Ok(None)
+        } else {
+            Ok(Some(address))
+        }
     }
 
     pub async fn pair_created_events<P: Provider>(

@@ -7,8 +7,9 @@ use factory::{FACTORY_ADDRESS, UniswapV2Factory};
 use plutus_defi_protocols_protocol::{
     DiscoverableProtocol, Protocol, ProtocolFactory, pool::LiquidityPool,
 };
+use plutus_evm::{EVM, errors::EvmCallError};
+use pool::UniswapV2Pool;
 
-mod decoding;
 pub mod factory;
 pub mod pool;
 
@@ -16,13 +17,28 @@ pub struct UniswapV2Protocol {
     factory: UniswapV2Factory,
 }
 
-impl Protocol for UniswapV2Protocol {
-    fn get_pools(&self, token0: Address, token1: Address) -> Vec<Box<dyn LiquidityPool>> {
-        todo!()
+impl<P: Provider> Protocol<P> for UniswapV2Protocol {
+    fn get_pools(
+        &self,
+        token0: Address,
+        token1: Address,
+        evm: &mut EVM<P>,
+    ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, EvmCallError<P>> {
+        let address = self.factory.get_pool_address(token0, token1, evm)?;
+
+        if let Some(address) = address {
+            Ok(vec![self.create_pool(address, evm)?])
+        } else {
+            Ok(vec![])
+        }
     }
 
-    fn create_pool(&self, address: Address) -> Box<dyn LiquidityPool> {
-        todo!()
+    fn create_pool(
+        &self,
+        address: Address,
+        evm: &mut EVM<P>,
+    ) -> Result<Box<dyn LiquidityPool<P>>, EvmCallError<P>> {
+        Ok(Box::new(UniswapV2Pool::new(address, evm)?) as Box<dyn LiquidityPool<P>>)
     }
 }
 

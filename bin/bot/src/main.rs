@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use alloy::{
-    primitives::BlockNumber,
     providers::{Provider, ProviderBuilder},
     rpc::client::ClientBuilder,
 };
