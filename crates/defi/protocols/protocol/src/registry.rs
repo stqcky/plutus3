@@ -236,7 +236,7 @@ impl<P: Provider> ProtocolRegistry<P> {
         required_weth_value: f64,
         evm: &mut EVM<P>,
     ) -> Result<bool, EvmCallError<P>> {
-        let (token0, token1) = pool.tokens();
+        let (token0, token1) = pool.token_addresses();
         let (locked0, locked1) = pool.tokens_locked(evm)?;
 
         let usdt = ERC20::new(address!("fd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9"), evm)?;
@@ -266,7 +266,7 @@ impl<P: Provider> ProtocolRegistry<P> {
         Ok(false)
     }
 
-    fn get_token_value(
+    pub fn get_token_value(
         &self,
         of_token: Address,
         in_token: Address,

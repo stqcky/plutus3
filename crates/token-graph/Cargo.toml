@@ -1,0 +1,16 @@
+[package]
+name = "plutus-token-graph"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+plutus-defi-erc20.workspace = true
+plutus-evm.workspace = true
+plutus-defi-protocols-protocol.workspace = true
+
+tokio.workspace = true
+petgraph.workspace = true
+anyhow.workspace = true
+hashbrown.workspace = true
+tracing.workspace = true
+futures.workspace = true

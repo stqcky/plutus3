@@ -15,3 +15,4 @@ derive_more.workspace = true
 hashbrown.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+dyn-clone.workspace = true

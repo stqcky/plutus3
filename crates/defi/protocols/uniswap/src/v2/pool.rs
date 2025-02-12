@@ -25,8 +25,10 @@ sol!(
     }
 );
 
+#[derive(Clone, Copy)]
 pub struct Reserves(U112, U112);
 
+#[derive(Clone)]
 pub struct UniswapV2Pool {
     address: Address,
 
@@ -93,7 +95,7 @@ impl<P: Provider> LiquidityPool<P> for UniswapV2Pool {
         !self.reserves.0.is_zero() && !self.reserves.1.is_zero()
     }
 
-    fn tokens(&self) -> (Address, Address) {
+    fn token_addresses(&self) -> (Address, Address) {
         (self.token0.address, self.token1.address)
     }
 
@@ -107,5 +109,9 @@ impl<P: Provider> LiquidityPool<P> for UniswapV2Pool {
 
     fn address(&self) -> Address {
         self.address
+    }
+
+    fn tokens(&self) -> (ERC20, ERC20) {
+        (self.token0.clone(), self.token1.clone())
     }
 }

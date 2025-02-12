@@ -456,7 +456,7 @@ impl<P: Provider> LiquidityPool<P> for UniswapV3Pool {
             && sqrt_price_x96 < MAX_SQRT_RATIO - U256::from(1)
     }
 
-    fn tokens(&self) -> (Address, Address) {
+    fn token_addresses(&self) -> (Address, Address) {
         (self.token0.address, self.token1.address)
     }
 
@@ -473,6 +473,10 @@ impl<P: Provider> LiquidityPool<P> for UniswapV3Pool {
 
     fn address(&self) -> Address {
         self.address
+    }
+
+    fn tokens(&self) -> (ERC20, ERC20) {
+        (self.token0.clone(), self.token1.clone())
     }
 }
 

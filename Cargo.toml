@@ -9,8 +9,9 @@ members = [
     "crates/defi/protocols/uniswap", 
     "crates/evm/evm", 
     "crates/evm/evm-core", 
-    "crates/evm/evm-procmacro", 
-    "crates/storage"
+    "crates/evm/evm-procmacro", "crates/monitoring", 
+    "crates/storage",
+    "crates/token-graph"
 ]
 
 resolver = "2"
@@ -28,6 +29,12 @@ plutus-evm-procmacro = { path = "crates/evm/evm-procmacro" }
 
 plutus-storage = { path = "crates/storage" }
 
+plutus-token-graph = { path = "crates/token-graph" }
+
+plutus-monitoring = { path = "crates/monitoring" }
+
+futures = "0.3.31"
+petgraph = "0.7.1"
 alloy = "0.9.2"
 anyhow = "1.0.95"
 dotenvy_macro = "0.15.7"
@@ -42,6 +49,7 @@ derive_more = "2.0.1"
 async-trait = "0.1.86"
 uniswap_v3_math = "0.5.3"
 strum = "0.27.0"
+dyn-clone = "1.0.18"
 
 proc-macro2 = "1.0.93"
 quote = "1.0.38"
