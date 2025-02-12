@@ -87,4 +87,8 @@ impl<P: Provider> LiquidityPool<P> for UniswapV2Pool {
             self.reserves = Reserves::from_storage_value(*value);
         }
     }
+
+    fn is_liquidity_valid(&self) -> bool {
+        !self.reserves.0.is_zero() && !self.reserves.1.is_zero()
+    }
 }

@@ -447,6 +447,14 @@ impl<P: Provider> LiquidityPool<P> for UniswapV3Pool {
             }
         }
     }
+
+    fn is_liquidity_valid(&self) -> bool {
+        let sqrt_price_x96 = U256::from(self.slot0.sqrt_price_x96);
+
+        self.liquidity != 0
+            && sqrt_price_x96 > MIN_SQRT_RATIO + U256::from(1)
+            && sqrt_price_x96 < MAX_SQRT_RATIO - U256::from(1)
+    }
 }
 
 impl StorageDecodable for TickInfo {
