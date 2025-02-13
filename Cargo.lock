@@ -2870,6 +2870,12 @@ name = "playground"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "anyhow",
+ "dotenvy_macro",
+ "plutus-defi-erc20",
+ "plutus-defi-protocols-protocol",
+ "plutus-defi-protocols-uniswap",
+ "plutus-evm",
  "tokio",
 ]
 

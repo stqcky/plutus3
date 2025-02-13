@@ -3,11 +3,9 @@ use std::{sync::Arc, time::Instant};
 use alloy::{
     primitives::{Address, U256, address},
     providers::{Provider, ProviderBuilder},
-    rpc::{client::ClientBuilder, types::BlockTransactionsKind},
+    rpc::client::ClientBuilder,
 };
 use dotenvy_macro::dotenv;
-use futures::{StreamExt as _, pin_mut};
-use plutus_blockchain::Blockchain;
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::registry::ProtocolRegistry;
 use plutus_defi_protocols_uniswap::{v2::UniswapV2Protocol, v3::UniswapV3Protocol};
@@ -89,44 +87,41 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("creating token graph");
     let mut token_graph = TokenGraph::new(pools, 1.0, &mut evm);
 
-    let mut caught_up_block_number = block_number;
-    let mut current_block = provider.get_block_number().await?;
-
-    // while current_block > caught_up_block_number {
-    //     tracing::info!("catching up: current = {caught_up_block_number}, latest = {current_block}");
-    //
-    //     let header = provider
-    //         .get_block_by_number(
-    //             (caught_up_block_number + 1).into(),
-    //             BlockTransactionsKind::Hashes,
-    //         )
-    //         .await?
-    //         .unwrap()
-    //         .header;
-    //
-    //     let state = state_monitor.get_state_changes(header).await;
-    //
-    //     token_graph.apply_state(state.changes, &mut evm);
-    //
-    //     caught_up_block_number += 1;
-    //     current_block = provider.get_block_number().await?;
-    // }
-
     let health_monitor = HealthMonitor::new(provider.clone());
-
-    // let blocks = state_monitor.monitor_blocks().await?;
-    // pin_mut!(blocks);
 
     let mut evm = EVM::new(provider.clone()).await?;
 
     // while let Some(block) = blocks.next().await {
-    while let Some(block) = state_rx.recv().await {
-        tracing::info!("block {}", block.block_header.number);
+    while let Some(state_change) = state_rx.recv().await {
+        let catching_up = if state_change.block_header.number == provider.get_block_number().await?
+        {
+            false
+        } else {
+            true
+        };
 
-        token_graph.apply_state(block.changes, &mut evm);
-        health_monitor.check_health(block.block_header.number, token_graph.pools.clone());
+        tracing::info!(
+            "block {}{}",
+            state_change.block_header.number,
+            if catching_up { ", catching up" } else { "" }
+        );
+
+        if catching_up {
+            let mut evm =
+                EVM::new_on_block(provider.clone(), state_change.block_header.number).await?;
+
+            token_graph.apply_state(state_change.changes, &mut evm);
+            health_monitor
+                .check_health(state_change.block_header.number, token_graph.pools.clone());
+
+            continue;
+        }
+
+        token_graph.apply_state(state_change.changes, &mut evm);
+        health_monitor.check_health(state_change.block_header.number, token_graph.pools.clone());
 
         for mut opportunity in token_graph.find_opportunities().await {
+            // simulate_opportunity(&mut opportunity, &mut evm, 1.0, &protocol_registry);
             let Some(x) = optimize_profit(&mut opportunity, &mut evm) else {
                 continue;
             };
@@ -169,7 +164,8 @@ fn simulate_opportunity<P: Provider + std::fmt::Debug>(
     registry: &ProtocolRegistry<P>,
 ) -> U256 {
     tracing::info!("opportunity:");
-    let mut amount = opportunity[0].token0.to_token_amount(start_amount);
+    let token_start_amount = opportunity[0].token0.to_token_amount(start_amount);
+    let mut amount = token_start_amount;
 
     for step in &mut *opportunity {
         let amount_out = step.pool.simulate_swap(step.token0.address, amount, evm);
@@ -184,13 +180,17 @@ fn simulate_opportunity<P: Provider + std::fmt::Debug>(
         amount = amount_out;
     }
 
-    let profit = opportunity[0]
-        .token0
-        .to_float_amount(amount - opportunity[0].token0.to_token_amount(start_amount));
+    if amount >= token_start_amount {
+        let profit = opportunity[0]
+            .token0
+            .to_float_amount(amount - token_start_amount);
 
-    let usd_profit = get_usd_value(&opportunity[0].token0, profit, evm, registry);
+        let usd_profit = get_usd_value(&opportunity[0].token0, profit, evm, registry);
 
-    tracing::info!("profit: {profit} (${usd_profit})");
+        tracing::info!("profit: {profit} (${usd_profit})");
+    } else {
+        tracing::info!("no profit");
+    }
 
     amount
 }
@@ -271,7 +271,7 @@ fn get_usd_value<P: Provider + std::fmt::Debug>(
         registry
             .get_token_value(token.address, weth.address, token_amount, evm)
             .unwrap(),
-    ) * 2596.0;
+    ) * 2666.39;
 
     usdt_value.max(usdc_value).max(weth_value)
 }

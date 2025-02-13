@@ -501,28 +501,28 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
 
         let block: BlockId = block_number.into();
 
-        if instance.token0().block(block).call().await?.token0 != self.token0.address {
-            bail!("token0 address mismatch");
-        }
-
-        if instance.token1().block(block).call().await?.token1 != self.token1.address {
-            bail!("token1 address mismatch");
-        }
-
-        if instance.fee().block(block).call().await?.fee != self.fee {
-            bail!("fee mismatch");
-        }
-
-        if instance
-            .tickSpacing()
-            .block(block)
-            .call()
-            .await?
-            .tickSpacing
-            != self.tick_spacing
-        {
-            bail!("tick_spacing mismatch");
-        }
+        // if instance.token0().block(block).call().await?.token0 != self.token0.address {
+        //     bail!("token0 address mismatch");
+        // }
+        //
+        // if instance.token1().block(block).call().await?.token1 != self.token1.address {
+        //     bail!("token1 address mismatch");
+        // }
+        //
+        // if instance.fee().block(block).call().await?.fee != self.fee {
+        //     bail!("fee mismatch");
+        // }
+        //
+        // if instance
+        //     .tickSpacing()
+        //     .block(block)
+        //     .call()
+        //     .await?
+        //     .tickSpacing
+        //     != self.tick_spacing
+        // {
+        //     bail!("tick_spacing mismatch");
+        // }
 
         let slot0 = instance.slot0().block(block).call().await?._0;
 
@@ -583,8 +583,9 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
 
             if *simulated_value != real_value {
                 bail!(
-                    "storage mismatch (pool {}) on block {block_number} at {slot}, real {} != {}",
+                    "storage mismatch (pool {}) on block {block_number} at {}, real {} != {}",
                     self.address,
+                    hex::encode(slot.to_be_bytes::<32>()),
                     hex::encode(real_value.to_be_bytes::<32>()),
                     hex::encode(simulated_value.to_be_bytes::<32>())
                 );

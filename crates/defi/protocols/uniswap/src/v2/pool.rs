@@ -132,13 +132,13 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
 
         let block: BlockId = block_number.into();
 
-        if instance.token0().block(block).call().await?.token0 != self.token0.address {
-            bail!("token0 address mismatch");
-        }
-
-        if instance.token1().block(block).call().await?.token1 != self.token1.address {
-            bail!("token1 address mismatch");
-        }
+        // if instance.token0().block(block).call().await?.token0 != self.token0.address {
+        //     bail!("token0 address mismatch");
+        // }
+        //
+        // if instance.token1().block(block).call().await?.token1 != self.token1.address {
+        //     bail!("token1 address mismatch");
+        // }
 
         let reserves = instance.getReserves().block(block).call().await?;
 

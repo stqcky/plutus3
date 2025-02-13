@@ -4,5 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-alloy.workspace = true
+alloy = { workspace = true, features = ["full"] }
 tokio = { workspace = true, features = ["full"] }
+anyhow.workspace = true
+plutus-defi-protocols-uniswap.workspace = true
+plutus-evm.workspace = true
+plutus-defi-protocols-protocol.workspace = true
+plutus-defi-erc20.workspace = true
+dotenvy_macro.workspace = true

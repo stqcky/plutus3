@@ -103,15 +103,7 @@ impl<P: Provider> ProtocolRegistry<P> {
         for pool_record in identified_pool_records {
             let protocol = &self.protocols[&pool_record.protocol];
 
-            let Ok(pool) = protocol.create_pool(pool_record.address, evm)
-            // .inspect_err(|err| {
-            //     tracing::error!(
-            //         "failed to create pool {} ({}): {err}",
-            //         pool_record.address,
-            //         pool_record.protocol
-            //     )
-            // })
-            else {
+            let Ok(pool) = protocol.create_pool(pool_record.address, evm) else {
                 continue;
             };
 
