@@ -75,10 +75,9 @@ async fn main() -> anyhow::Result<()> {
 
         filtered
     } else {
-        todo!()
-        // protocol_registry
-        //     .get_cached_filtered_pools(&storage, &mut evm)
-        //     .await?
+        protocol_registry
+            .get_cached_filtered_pools(&storage, block_number.into())
+            .await?
     };
 
     tracing::info!("pool count: {}", pools.len());
@@ -126,14 +125,14 @@ async fn main() -> anyhow::Result<()> {
                 continue;
             };
 
-            let profit = calculate_opportunity(&mut opportunity, &mut evm, x) - x;
-            let usd_profit =
-                get_usd_value(&opportunity[0].token0, profit, &mut evm, &protocol_registry);
-
-            if usd_profit >= 0.01 {
-                simulate_opportunity(&mut opportunity, &mut evm, x, &protocol_registry);
-                println!("");
-            }
+            // let profit = calculate_opportunity(&mut opportunity, &mut evm, x) - x;
+            // let usd_profit =
+            //     get_usd_value(&opportunity[0].token0, profit, &mut evm, &protocol_registry);
+            //
+            // if usd_profit >= 0.01 {
+            simulate_opportunity(&mut opportunity, &mut evm, x, &protocol_registry);
+            println!("");
+            // }
         }
     }
 

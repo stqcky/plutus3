@@ -1,6 +1,7 @@
 mod factory;
 pub mod fee;
 pub mod pool;
+pub mod quoter;
 mod tick_bitmap;
 
 use alloy::{

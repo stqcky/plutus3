@@ -153,32 +153,28 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
         provider: Arc<P>,
         block_number: BlockNumber,
     ) -> anyhow::Result<bool> {
-        let instance = IUniswapV2PoolInstance::new(self.address, provider);
+        let instance = Self::new_with_provider(self.address, provider, block_number.into()).await?;
 
-        let block: BlockId = block_number.into();
+        if instance.token0 != self.token0 {
+            bail!("token0 address mismatch");
+        }
 
-        // if instance.token0().block(block).call().await?.token0 != self.token0.address {
-        //     bail!("token0 address mismatch");
-        // }
-        //
-        // if instance.token1().block(block).call().await?.token1 != self.token1.address {
-        //     bail!("token1 address mismatch");
-        // }
+        if instance.token1 != self.token1 {
+            bail!("token1 address mismatch");
+        }
 
-        let reserves = instance.getReserves().block(block).call().await?;
-
-        if reserves._reserve0 != self.reserves.0 {
+        if instance.reserves.0 != self.reserves.0 {
             bail!(
                 "reserve0 mismatch on block {block_number}, real {} != {}",
-                reserves._reserve0,
+                instance.reserves.0,
                 self.reserves.0
             );
         }
 
-        if reserves._reserve1 != self.reserves.1 {
+        if instance.reserves.1 != self.reserves.1 {
             bail!(
                 "reserve1 mismatch on block {block_number}, real {} != {}",
-                reserves._reserve1,
+                instance.reserves.1,
                 self.reserves.1
             );
         }

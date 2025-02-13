@@ -215,7 +215,7 @@ impl<P: Provider> TokenGraph<P> {
         // petgraph::algo
         // self.mmbf().await
         // self.bellman_ford().await
-        let now = Instant::now();
+        // let now = Instant::now();
         let a = self.spfa();
         // tracing::info!("{:?}", now.elapsed());
         a

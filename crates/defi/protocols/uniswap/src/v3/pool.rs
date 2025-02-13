@@ -551,71 +551,47 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
         provider: Arc<P>,
         block_number: BlockNumber,
     ) -> anyhow::Result<bool> {
-        let instance = IUniswapV3PoolInstance::new(self.address, provider.clone());
+        let instance =
+            Self::new_with_provider(self.address, provider.clone(), block_number.into()).await?;
 
-        let block: BlockId = block_number.into();
+        if instance.token0 != self.token0 {
+            bail!("token0 address mismatch");
+        }
 
-        // if instance.token0().block(block).call().await?.token0 != self.token0.address {
-        //     bail!("token0 address mismatch");
-        // }
-        //
-        // if instance.token1().block(block).call().await?.token1 != self.token1.address {
-        //     bail!("token1 address mismatch");
-        // }
-        //
-        // if instance.fee().block(block).call().await?.fee != self.fee {
-        //     bail!("fee mismatch");
-        // }
-        //
-        // if instance
-        //     .tickSpacing()
-        //     .block(block)
-        //     .call()
-        //     .await?
-        //     .tickSpacing
-        //     != self.tick_spacing
-        // {
-        //     bail!("tick_spacing mismatch");
-        // }
+        if instance.token1 != self.token1 {
+            bail!("token1 address mismatch");
+        }
 
-        let slot0 = instance.slot0().block(block).call().await?._0;
+        if instance.fee != self.fee {
+            bail!("fee mismatch");
+        }
 
-        if slot0.sqrt_price_x96 != self.slot0.sqrt_price_x96 {
+        if instance.tick_spacing != self.tick_spacing {
+            bail!("tick_spacing mismatch");
+        }
+
+        if instance.slot0.sqrt_price_x96 != self.slot0.sqrt_price_x96 {
             bail!(
                 "sqrt_price_x96 mismatch (pool {}) on block {block_number}, real {} != {}",
                 self.address,
-                slot0.sqrt_price_x96,
+                instance.slot0.sqrt_price_x96,
                 self.slot0.sqrt_price_x96
             );
         }
 
-        if slot0.tick != self.slot0.tick {
+        if instance.slot0.tick != self.slot0.tick {
             bail!("tick mismatch");
         }
 
-        if slot0.fee_protocol != self.slot0.fee_protocol {
+        if instance.slot0.fee_protocol != self.slot0.fee_protocol {
             bail!("fee_protocol mismatch");
         }
 
-        if instance
-            .feeGrowthGlobal0X128()
-            .block(block)
-            .call()
-            .await?
-            .feeGrowthGlobal0X128
-            != self.fee_growth_global_0_x128
-        {
+        if instance.fee_growth_global_0_x128 != self.fee_growth_global_0_x128 {
             bail!("fee_growth_global_0_x128 mismatch");
         }
 
-        if instance
-            .feeGrowthGlobal1X128()
-            .block(block)
-            .call()
-            .await?
-            .feeGrowthGlobal1X128
-            != self.fee_growth_global_1_x128
-        {
+        if instance.fee_growth_global_1_x128 != self.fee_growth_global_1_x128 {
             bail!("fee_growth_global_1_x128 mismatch");
         }
 
@@ -632,7 +608,7 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
 
             let real_value = provider
                 .get_storage_at(self.address, slot)
-                .block_id(block)
+                .block_id(block_number.into())
                 .await?;
 
             if *simulated_value != real_value {
@@ -692,4 +668,15 @@ impl FromStorageValue for Slot0 {
             fee_protocol: fee_protocol[0],
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    pub async fn swaps_are_correct() {}
+
+    #[tokio::test]
+    pub async fn decoding_is_correct() {}
 }

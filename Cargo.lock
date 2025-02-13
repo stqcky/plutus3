@@ -2948,6 +2948,7 @@ dependencies = [
  "plutus-defi-protocols-protocol",
  "plutus-evm",
  "strum 0.27.0",
+ "tokio",
  "uniswap_v3_math",
 ]
 
