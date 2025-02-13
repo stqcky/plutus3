@@ -24,10 +24,11 @@ pub struct UniswapV2Router<P>(IUniswapV2Router02Instance<BoxTransport, P>);
 
 impl<P: Provider> UniswapV2Router<P> {
     pub fn new(provider: P) -> Self {
-        Self(IUniswapV2Router02Instance::new(
-            DEPLOYMENT_ADDRESS,
-            provider,
-        ))
+        Self::new_on_address(DEPLOYMENT_ADDRESS, provider)
+    }
+
+    pub fn new_on_address(address: Address, provider: P) -> Self {
+        Self(IUniswapV2Router02Instance::new(address, provider))
     }
 
     pub async fn get_amount_out(

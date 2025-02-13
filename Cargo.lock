@@ -1043,6 +1043,7 @@ dependencies = [
  "futures",
  "plutus-blockchain",
  "plutus-defi-erc20",
+ "plutus-defi-protocols-pancakeswap",
  "plutus-defi-protocols-protocol",
  "plutus-defi-protocols-uniswap",
  "plutus-evm",
@@ -2892,6 +2893,7 @@ dependencies = [
  "anyhow",
  "dotenvy_macro",
  "plutus-defi-erc20",
+ "plutus-defi-protocols-pancakeswap",
  "plutus-defi-protocols-protocol",
  "plutus-defi-protocols-uniswap",
  "plutus-evm",
@@ -2912,6 +2914,23 @@ dependencies = [
  "anyhow",
  "derive_more 2.0.1",
  "plutus-evm",
+]
+
+[[package]]
+name = "plutus-defi-protocols-pancakeswap"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "async-trait",
+ "dotenvy_macro",
+ "hashbrown 0.15.2",
+ "lazy_static",
+ "plutus-defi-erc20",
+ "plutus-defi-protocols-protocol",
+ "plutus-defi-protocols-uniswap",
+ "plutus-evm",
+ "tokio",
 ]
 
 [[package]]

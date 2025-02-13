@@ -1,0 +1,18 @@
+[package]
+name = "plutus-defi-protocols-pancakeswap"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+plutus-defi-protocols-uniswap.workspace = true
+plutus-defi-protocols-protocol.workspace = true
+plutus-defi-erc20.workspace = true
+plutus-evm.workspace = true
+
+alloy = { workspace = true, features = ["providers", "contract"] }
+lazy_static.workspace = true
+dotenvy_macro.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+hashbrown.workspace = true
+tokio.workspace = true

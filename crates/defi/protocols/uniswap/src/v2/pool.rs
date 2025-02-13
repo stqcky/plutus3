@@ -33,16 +33,16 @@ sol!(
 );
 
 #[derive(Clone, Copy)]
-pub struct Reserves(U112, U112);
+pub struct Reserves(pub U112, pub U112);
 
 #[derive(Clone)]
 pub struct UniswapV2Pool {
-    address: Address,
+    pub address: Address,
 
-    token0: ERC20,
-    token1: ERC20,
+    pub token0: ERC20,
+    pub token1: ERC20,
 
-    reserves: Reserves,
+    pub reserves: Reserves,
 }
 
 impl UniswapV2Pool {

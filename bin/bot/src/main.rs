@@ -7,6 +7,7 @@ use alloy::{
 };
 use dotenvy_macro::dotenv;
 use plutus_defi_erc20::ERC20;
+use plutus_defi_protocols_pancakeswap::v2::PancakeSwapV2Protocol;
 use plutus_defi_protocols_protocol::registry::ProtocolRegistry;
 use plutus_defi_protocols_uniswap::{v2::UniswapV2Protocol, v3::UniswapV3Protocol};
 use plutus_evm::EVM;
@@ -21,7 +22,7 @@ fn init_tracing() {
         .init();
 }
 
-const UPDATE_CACHE: bool = false;
+const UPDATE_CACHE: bool = true;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -52,7 +53,8 @@ async fn main() -> anyhow::Result<()> {
     let protocol_registry = ProtocolRegistry::new(provider.clone())
         .await?
         .with::<UniswapV2Protocol>()?
-        .with::<UniswapV3Protocol>()?;
+        .with::<UniswapV3Protocol>()?
+        .with::<PancakeSwapV2Protocol>()?;
 
     protocol_registry
         .discover_and_store(block_number, &storage)

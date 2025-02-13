@@ -130,7 +130,6 @@ impl<P: Provider + std::fmt::Debug + 'static + Clone> PoolFilter<P> {
         block: BlockNumber,
         protocols: Vec<Box<dyn DiscoverableProtocol<P>>>,
     ) -> anyhow::Result<Self> {
-        let block = provider.get_block_number().await?;
         let mut evm = EVM::new(provider.clone(), block);
 
         let usdt = ERC20::new(USDT, &mut evm)?;
@@ -169,8 +168,6 @@ impl<P: Provider + std::fmt::Debug + 'static + Clone> PoolFilter<P> {
             .filter(|pool| pool.is_liquidity_valid())
             .collect::<Vec<_>>();
 
-        let block = provider.get_block_number().await?;
-
         let token_value_cache = self.token_value_cache;
         let required = Arc::new(self.required);
         let protocols = Arc::new(protocols);
@@ -192,6 +189,7 @@ impl<P: Provider + std::fmt::Debug + 'static + Clone> PoolFilter<P> {
                     let mut evm = EVM::new(provider.clone(), block);
 
                     let (token0, token1) = pool.tokens();
+                    // tracing::info!("{token0} {token1}");
                     let Ok((locked0, locked1)) = pool.tokens_locked(&mut evm) else {
                         return None;
                     };
@@ -228,12 +226,10 @@ impl<P: Provider + std::fmt::Debug + 'static + Clone> PoolFilter<P> {
                         let total_value = total_value0 + total_value1;
 
                         if total_value >= token.value {
-                            // tracing::info!("filtered in, {:?}", now.elapsed());
                             return Some(pool);
                         }
                     }
 
-                    // tracing::info!("filtered out, {:?}", now.elapsed());
                     None
                 })
             })

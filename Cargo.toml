@@ -4,7 +4,7 @@ members = [
     "bin/bot", 
     "bin/playground", 
     "crates/blockchain",
-    "crates/defi/erc20", 
+    "crates/defi/erc20", "crates/defi/protocols/pancakeswap", 
     "crates/defi/protocols/protocol", 
     "crates/defi/protocols/uniswap", 
     "crates/evm/evm", 
@@ -22,6 +22,7 @@ plutus-blockchain = { path = "crates/blockchain" }
 plutus-defi-erc20 = { path = "crates/defi/erc20" }
 plutus-defi-protocols-protocol = { path = "crates/defi/protocols/protocol" }
 plutus-defi-protocols-uniswap = { path = "crates/defi/protocols/uniswap" }
+plutus-defi-protocols-pancakeswap = { path = "crates/defi/protocols/pancakeswap" }
 
 plutus-evm = { path = "crates/evm/evm" }
 plutus-evm-core = { path = "crates/evm/evm-core" }
