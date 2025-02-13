@@ -1,5 +1,6 @@
 use IQuoterV2::{IQuoterV2Instance, QuoteExactInputSingleParams, quoteExactInputSingleReturn};
 use alloy::{
+    eips::BlockId,
     primitives::{Address, address},
     providers::Provider,
     sol,
@@ -42,5 +43,17 @@ impl<P: Provider> Quoter<P> {
         params: QuoteExactInputSingleParams,
     ) -> Result<quoteExactInputSingleReturn, alloy::contract::Error> {
         self.0.quoteExactInputSingle(params).call().await
+    }
+
+    pub async fn quote_exact_input_single_on_block(
+        &self,
+        params: QuoteExactInputSingleParams,
+        block: BlockId,
+    ) -> Result<quoteExactInputSingleReturn, alloy::contract::Error> {
+        self.0
+            .quoteExactInputSingle(params)
+            .block(block)
+            .call()
+            .await
     }
 }

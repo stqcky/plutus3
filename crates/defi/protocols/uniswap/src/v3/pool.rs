@@ -672,11 +672,119 @@ impl FromStorageValue for Slot0 {
 
 #[cfg(test)]
 mod tests {
+    use alloy::{primitives::address, providers::ProviderBuilder, rpc::client::ClientBuilder};
+    use dotenvy_macro::dotenv;
+
+    use crate::v3::quoter::{IQuoterV2::QuoteExactInputSingleParams, Quoter};
+
     use super::*;
 
-    #[tokio::test]
-    pub async fn swaps_are_correct() {}
+    const POOLS: &[Address] = &[
+        address!("17c14d2c404d167802b16c450d3c99f88f2c4f4d"),
+        address!("149e36e72726e0bcea5c59d40df2c43f60f5a22d"),
+        address!("c31e54c7a869b9fcbecc14363cf510d1c41fa443"),
+        address!("80a9ae39310abf666a87c743d6ebbd0e8c42158e"),
+        address!("c24f7d8e51a64dc1238880bd00bb961d54cbeb29"),
+        address!("a95b0f5a65a769d82ab4f3e82842e45b8bbaf101"),
+        address!("c82819f72a9e77e2c0c3a69b3196478f44303cf4"),
+        address!("13398e27a21be1218b6900cbedf677571df42a48"),
+    ];
 
-    #[tokio::test]
-    pub async fn decoding_is_correct() {}
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn swaps_are_correct() -> anyhow::Result<()> {
+        let provider = Arc::new(
+            ProviderBuilder::new().with_recommended_fillers().on_client(
+                ClientBuilder::default()
+                    .ipc(dotenv!("IPC_PROVIDER").to_string().into())
+                    .await?
+                    .boxed(),
+            ),
+        );
+
+        let block_number = provider.get_block_number().await?;
+        let mut evm = EVM::new(provider.clone(), block_number);
+
+        let quoter = Quoter::new(provider.clone());
+
+        for address in POOLS {
+            let mut pool = UniswapV3Pool::new(*address, &mut evm)?;
+
+            for amount in 1..100 {
+                let token0_out = pool.simulate_swap(
+                    pool.token0.address,
+                    pool.token0.to_token_amount(amount as f64),
+                    &mut evm,
+                );
+
+                let quoted_token0_out = quoter
+                    .quote_exact_input_single_on_block(
+                        QuoteExactInputSingleParams {
+                            token_in: pool.token0.address,
+                            token_out: pool.token1.address,
+                            amount_in: pool.token0.to_token_amount(amount as f64),
+                            fee: pool.fee,
+                            sqrt_price_limit_x96: U160::from(MIN_SQRT_RATIO + U256::from(1)),
+                        },
+                        block_number.into(),
+                    )
+                    .await?
+                    .amount_out;
+
+                if token0_out != quoted_token0_out {
+                    panic!(
+                        "swap mismatch: token0 -> token1, pool = {}, amount = {amount}, quoted {} != {}",
+                        pool.address, quoted_token0_out, token0_out
+                    );
+                }
+
+                let token1_out = pool.simulate_swap(
+                    pool.token1.address,
+                    pool.token1.to_token_amount(amount as f64),
+                    &mut evm,
+                );
+
+                let quoted_token1_out = quoter
+                    .quote_exact_input_single(QuoteExactInputSingleParams {
+                        token_in: pool.token1.address,
+                        token_out: pool.token0.address,
+                        amount_in: pool.token1.to_token_amount(amount as f64),
+                        fee: pool.fee,
+                        sqrt_price_limit_x96: U160::from(MAX_SQRT_RATIO - U256::from(1)),
+                    })
+                    .await?
+                    .amount_out;
+
+                if token1_out != quoted_token1_out {
+                    panic!(
+                        "swap mismatch: token1 -> token0, pool = {}, amount = {amount}, quoted {} != {}",
+                        pool.address, quoted_token1_out, token1_out
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn decoding_is_correct() -> anyhow::Result<()> {
+        let provider = Arc::new(
+            ProviderBuilder::new().with_recommended_fillers().on_client(
+                ClientBuilder::default()
+                    .ipc(dotenv!("IPC_PROVIDER").to_string().into())
+                    .await?
+                    .boxed(),
+            ),
+        );
+
+        let block_number = provider.get_block_number().await?;
+        let mut evm = EVM::new(provider.clone(), block_number);
+
+        for address in POOLS {
+            let pool = UniswapV3Pool::new(*address, &mut evm)?;
+            pool.verify_health(provider.clone(), block_number).await?;
+        }
+
+        Ok(())
+    }
 }
