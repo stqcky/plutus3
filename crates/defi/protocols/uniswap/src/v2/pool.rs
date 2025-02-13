@@ -1,11 +1,16 @@
-use IUniswapV2Pool::{token0Call, token1Call};
+use std::sync::Arc;
+
+use IUniswapV2Pool::{IUniswapV2PoolInstance, token0Call, token1Call};
 use alloy::{
-    primitives::{Address, U256, aliases::U112},
+    eips::BlockId,
+    primitives::{Address, BlockNumber, U256, aliases::U112},
     providers::Provider,
     sol,
     sol_types::SolCall as _,
     uint,
 };
+use anyhow::bail;
+use async_trait::async_trait;
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::pool::LiquidityPool;
 use plutus_evm::{EVM, errors::EvmCallError, storage::FromStorageValue};
@@ -20,6 +25,8 @@ sol!(
 
         uint112 private reserve0;
         uint112 private reserve1;
+
+        function getReserves() public view returns (uint112 _reserve0, uint112 _reserve1, uint32 _blockTimestampLast);
 
         function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external;
     }
@@ -72,7 +79,8 @@ impl FromStorageValue for Reserves {
     }
 }
 
-impl<P: Provider> LiquidityPool<P> for UniswapV2Pool {
+#[async_trait]
+impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
     fn simulate_swap(&mut self, token: Address, amount: U256, _evm: &mut EVM<P>) -> U256 {
         let (reserve_in, reserve_out) = if token == self.token0.address {
             (self.reserves.0, self.reserves.1)
@@ -113,5 +121,43 @@ impl<P: Provider> LiquidityPool<P> for UniswapV2Pool {
 
     fn tokens(&self) -> (ERC20, ERC20) {
         (self.token0.clone(), self.token1.clone())
+    }
+
+    async fn verify_health(
+        &self,
+        provider: Arc<P>,
+        block_number: BlockNumber,
+    ) -> anyhow::Result<bool> {
+        let instance = IUniswapV2PoolInstance::new(self.address, provider);
+
+        let block: BlockId = block_number.into();
+
+        if instance.token0().block(block).call().await?.token0 != self.token0.address {
+            bail!("token0 address mismatch");
+        }
+
+        if instance.token1().block(block).call().await?.token1 != self.token1.address {
+            bail!("token1 address mismatch");
+        }
+
+        let reserves = instance.getReserves().block(block).call().await?;
+
+        if reserves._reserve0 != self.reserves.0 {
+            bail!(
+                "reserve0 mismatch on block {block_number}, real {} != {}",
+                reserves._reserve0,
+                self.reserves.0
+            );
+        }
+
+        if reserves._reserve1 != self.reserves.1 {
+            bail!(
+                "reserve1 mismatch on block {block_number}, real {} != {}",
+                reserves._reserve1,
+                self.reserves.1
+            );
+        }
+
+        Ok(true)
     }
 }

@@ -1,13 +1,17 @@
+use std::sync::Arc;
+
 use alloy::{
-    primitives::{Address, U256},
+    primitives::{Address, BlockNumber, U256},
     providers::Provider,
 };
+use async_trait::async_trait;
 use dyn_clone::DynClone;
 use hashbrown::HashMap;
 use plutus_defi_erc20::ERC20;
 use plutus_evm::{EVM, errors::EvmCallError};
 
-pub trait LiquidityPool<P: Provider>: DynClone {
+#[async_trait]
+pub trait LiquidityPool<P: Provider>: DynClone + Send {
     fn identifier(&self) -> &'static str;
     fn address(&self) -> Address;
 
@@ -19,6 +23,8 @@ pub trait LiquidityPool<P: Provider>: DynClone {
     fn token_addresses(&self) -> (Address, Address);
     fn tokens(&self) -> (ERC20, ERC20);
     fn tokens_locked(&self, evm: &mut EVM<P>) -> Result<(U256, U256), EvmCallError<P>>;
+
+    async fn verify_health(&self, provider: Arc<P>, block: BlockNumber) -> anyhow::Result<bool>;
 }
 
 dyn_clone::clone_trait_object!(<P: Provider> LiquidityPool<P>);

@@ -1,3 +1,5 @@
+pub mod health;
+
 use alloy::{
     primitives::{U256, map::AddressMap},
     providers::{Provider, ext::DebugApi},
@@ -13,6 +15,7 @@ use async_stream::stream;
 use futures::{Stream, StreamExt as _};
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
+use tokio::sync::mpsc::Sender;
 
 lazy_static! {
     static ref TRACING_OPTIONS: GethDebugTracingOptions = GethDebugTracingOptions {
@@ -40,58 +43,89 @@ lazy_static! {
 }
 
 pub struct StateChange {
-    pub block: Header,
+    pub block_header: Header,
     pub changes: Vec<AddressMap<HashMap<U256, U256>>>,
 }
 
-pub struct StateMonitor;
+#[derive(Clone)]
+pub struct StateMonitor<P> {
+    provider: P,
+}
 
-impl StateMonitor {
-    pub async fn monitor_blocks<P: Provider>(
-        provider: P,
-    ) -> anyhow::Result<impl Stream<Item = StateChange>> {
-        let mut blocks = provider.subscribe_blocks().await?.into_stream();
+impl<P: Provider + Clone + 'static> StateMonitor<P> {
+    pub fn new(provider: P) -> Self {
+        Self { provider }
+    }
+
+    pub async fn subscribe_blocks(&self, tx: Sender<StateChange>) -> anyhow::Result<()> {
+        let monitor = self.clone();
+
+        tokio::spawn({
+            let mut blocks = monitor.provider.subscribe_blocks().await?.into_stream();
+
+            async move {
+                while let Some(header) = blocks.next().await {
+                    let state = monitor.get_state_changes(header).await;
+
+                    tx.send(state).await.expect("channel is open");
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    pub async fn monitor_blocks(&self) -> anyhow::Result<impl Stream<Item = StateChange>> {
+        let mut blocks = self.provider.subscribe_blocks().await?.into_stream();
 
         Ok(stream! {
-            while let Some(block) = blocks.next().await {
-                let changes = provider
-                    .debug_trace_block_by_number(block.number.into(), TRACING_OPTIONS.clone())
-                    .await
-                    .unwrap()
-                    .into_iter()
-                    .filter_map(|trace| match trace {
-                        TraceResult::Success { result, .. } => result
-                            .try_into_pre_state_frame()
-                            .map(|frame| match frame {
-                                PreStateFrame::Diff(diff) => diff.post,
-                                _ => unreachable!(),
-                            })
-                            .ok(),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>();
-
-                let changes = changes
-                    .into_iter()
-                    .map(|changes| {
-                        AddressMap::from_iter(changes.into_iter().map(|(address, state)| {
-                            (
-                                address,
-                                HashMap::from_iter(
-                                    state
-                                        .storage
-                                        .into_iter()
-                                        .map(|(slot, value)| (slot.into(), value.into())),
-                                ),
-                            )
-                        }))
-                    })
-                    .collect();
-
-                let state = StateChange { block, changes };
+            while let Some(header) = blocks.next().await {
+                let state = self.get_state_changes(header).await;
 
                 yield state;
             }
         })
+    }
+
+    pub async fn get_state_changes(&self, block_header: Header) -> StateChange {
+        let changes = self
+            .provider
+            .debug_trace_block_by_number(block_header.number.into(), TRACING_OPTIONS.clone())
+            .await
+            .unwrap()
+            .into_iter()
+            .filter_map(|trace| match trace {
+                TraceResult::Success { result, .. } => result
+                    .try_into_pre_state_frame()
+                    .map(|frame| match frame {
+                        PreStateFrame::Diff(diff) => diff.post,
+                        _ => unreachable!(),
+                    })
+                    .ok(),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let changes = changes
+            .into_iter()
+            .map(|changes| {
+                AddressMap::from_iter(changes.into_iter().map(|(address, state)| {
+                    (
+                        address,
+                        HashMap::from_iter(
+                            state
+                                .storage
+                                .into_iter()
+                                .map(|(slot, value)| (slot.into(), value.into())),
+                        ),
+                    )
+                }))
+            })
+            .collect();
+
+        StateChange {
+            block_header,
+            changes,
+        }
     }
 }

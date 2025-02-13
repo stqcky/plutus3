@@ -21,7 +21,7 @@ pub struct UniswapV3Protocol {
     factory: UniswapV3Factory,
 }
 
-impl<P: Provider> Protocol<P> for UniswapV3Protocol {
+impl<P: Provider + 'static> Protocol<P> for UniswapV3Protocol {
     fn get_pools(
         &self,
         token0: Address,

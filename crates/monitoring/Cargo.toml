@@ -4,9 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+plutus-defi-protocols-protocol.workspace = true
+
 alloy = { workspace = true, features = ["full", "provider-debug-api"] }
 anyhow.workspace = true
 async-stream = "0.3.6"
 hashbrown.workspace = true
 futures.workspace = true
 lazy_static.workspace = true
+tokio.workspace = true
+tracing.workspace = true

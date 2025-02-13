@@ -1,7 +1,7 @@
 use crate::errors::EvmCallError;
 use alloy::{
     network::Ethereum,
-    primitives::ChainId,
+    primitives::{BlockNumber, ChainId},
     providers::Provider,
     sol_types::{Revert, SolCall, SolError},
     transports::BoxTransport,
@@ -20,6 +20,7 @@ pub type EvmDatabase<P> = CacheDB<WrapDatabaseAsync<AlloyDB<BoxTransport, Ethere
 pub struct EVM<P: Provider> {
     db: EvmDatabase<P>,
     chain_id: ChainId,
+    static_block_number: Option<BlockNumber>,
 }
 
 pub struct EvmCall<T> {
@@ -28,16 +29,35 @@ pub struct EvmCall<T> {
 }
 
 impl<P: Provider> EVM<P> {
-    pub async fn new(provider: P, block: BlockId) -> anyhow::Result<Self> {
+    pub async fn new(provider: P) -> anyhow::Result<Self> {
         let chain_id = provider
             .get_chain_id()
             .await
             .context("failed to fetch chain id")?;
 
-        let alloydb = AlloyDB::new(provider, block);
+        let block_number = provider.get_block_number().await?.into();
+
+        let alloydb = AlloyDB::new(provider, block_number);
         let db = CacheDB::new(WrapDatabaseAsync::new(alloydb).context("failed to wrap database")?);
 
-        Ok(Self { db, chain_id })
+        Ok(Self {
+            db,
+            chain_id,
+            static_block_number: None,
+        })
+    }
+
+    pub async fn new_on_block(provider: P, block_number: BlockNumber) -> anyhow::Result<Self> {
+        let chain_id = provider.get_chain_id().await?;
+
+        let alloydb = AlloyDB::new(provider, block_number.into());
+        let db = CacheDB::new(WrapDatabaseAsync::new(alloydb).context("failed to wrap database")?);
+
+        Ok(Self {
+            db,
+            chain_id,
+            static_block_number: Some(block_number),
+        })
     }
 
     pub fn storage(&mut self, address: Address, slot: U256) -> U256 {
@@ -54,6 +74,11 @@ impl<P: Provider> EVM<P> {
             .modify_cfg_chained(|cfg| {
                 cfg.disable_nonce_check = true;
             })
+            .modify_block_chained(|block| {
+                if let Some(block_number) = self.static_block_number {
+                    block.number = block_number;
+                }
+            })
             .modify_tx_chained(|tx| {
                 tx.kind = TxKind::Call(to);
                 tx.data = call.abi_encode().into();
@@ -62,6 +87,12 @@ impl<P: Provider> EVM<P> {
 
         let result = evm.transact_previous()?.result;
 
+        Self::map_execution_result::<T>(result)
+    }
+
+    fn map_execution_result<T: SolCall>(
+        result: ExecutionResult,
+    ) -> Result<EvmCall<T::Return>, EvmCallError<P>> {
         match result {
             ExecutionResult::Success {
                 gas_used,

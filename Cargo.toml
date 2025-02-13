@@ -50,6 +50,7 @@ async-trait = "0.1.86"
 uniswap_v3_math = "0.5.3"
 strum = "0.27.0"
 dyn-clone = "1.0.18"
+hex = "0.4.3"
 
 proc-macro2 = "1.0.93"
 quote = "1.0.38"

@@ -2914,6 +2914,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "hashbrown 0.15.2",
+ "hex",
  "lazy_static",
  "plutus-defi-erc20",
  "plutus-defi-protocols-protocol",
@@ -2965,6 +2966,9 @@ dependencies = [
  "futures",
  "hashbrown 0.15.2",
  "lazy_static",
+ "plutus-defi-protocols-protocol",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

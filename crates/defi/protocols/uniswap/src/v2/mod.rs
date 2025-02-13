@@ -17,7 +17,7 @@ pub struct UniswapV2Protocol {
     factory: UniswapV2Factory,
 }
 
-impl<P: Provider> Protocol<P> for UniswapV2Protocol {
+impl<P: Provider + 'static> Protocol<P> for UniswapV2Protocol {
     fn get_pools(
         &self,
         token0: Address,

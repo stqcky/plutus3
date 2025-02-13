@@ -1,7 +1,10 @@
-use IUniswapV3Pool::{feeCall, tickSpacingCall, token0Call, token1Call};
+use std::sync::Arc;
+
+use IUniswapV3Pool::{IUniswapV3PoolInstance, feeCall, tickSpacingCall, token0Call, token1Call};
 use alloy::{
+    eips::BlockId,
     primitives::{
-        Address, I128, I256, U8, U16, U32, U128, U160, U256,
+        Address, BlockNumber, I128, I256, U8, U16, U32, U128, U160, U256,
         aliases::{I24, I56, U24, U56},
     },
     providers::Provider,
@@ -9,6 +12,8 @@ use alloy::{
     sol_types::SolCall as _,
     uint,
 };
+use anyhow::bail;
+use async_trait::async_trait;
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::pool::LiquidityPool;
 use plutus_evm::{
@@ -431,13 +436,21 @@ impl UniswapV3Pool {
     }
 }
 
-impl<P: Provider> LiquidityPool<P> for UniswapV3Pool {
+#[async_trait]
+impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
     fn simulate_swap(&mut self, token: Address, amount: U256, evm: &mut EVM<P>) -> U256 {
         self.exact_input_of(token, amount, evm)
     }
 
     fn apply_storage_changes(&mut self, changes: hashbrown::HashMap<U256, U256>) {
         for (slot, value) in changes {
+            // println!(
+            //     "update {}: {} = {}",
+            //     self.address,
+            //     hex::encode(slot.to_be_bytes::<32>()),
+            //     hex::encode(value.to_be_bytes::<32>())
+            // );
+
             match slot {
                 _ if slot == SLOT0_SLOT => self.slot0 = Slot0::from_storage_value(value),
                 _ if slot == FEE_GROWTH_GLOBAL_0_X128_SLOT => self.fee_growth_global_0_x128 = value,
@@ -477,6 +490,108 @@ impl<P: Provider> LiquidityPool<P> for UniswapV3Pool {
 
     fn tokens(&self) -> (ERC20, ERC20) {
         (self.token0.clone(), self.token1.clone())
+    }
+
+    async fn verify_health(
+        &self,
+        provider: Arc<P>,
+        block_number: BlockNumber,
+    ) -> anyhow::Result<bool> {
+        let instance = IUniswapV3PoolInstance::new(self.address, provider.clone());
+
+        let block: BlockId = block_number.into();
+
+        if instance.token0().block(block).call().await?.token0 != self.token0.address {
+            bail!("token0 address mismatch");
+        }
+
+        if instance.token1().block(block).call().await?.token1 != self.token1.address {
+            bail!("token1 address mismatch");
+        }
+
+        if instance.fee().block(block).call().await?.fee != self.fee {
+            bail!("fee mismatch");
+        }
+
+        if instance
+            .tickSpacing()
+            .block(block)
+            .call()
+            .await?
+            .tickSpacing
+            != self.tick_spacing
+        {
+            bail!("tick_spacing mismatch");
+        }
+
+        let slot0 = instance.slot0().block(block).call().await?._0;
+
+        if slot0.sqrt_price_x96 != self.slot0.sqrt_price_x96 {
+            bail!(
+                "sqrt_price_x96 mismatch (pool {}) on block {block_number}, real {} != {}",
+                self.address,
+                slot0.sqrt_price_x96,
+                self.slot0.sqrt_price_x96
+            );
+        }
+
+        if slot0.tick != self.slot0.tick {
+            bail!("tick mismatch");
+        }
+
+        if slot0.fee_protocol != self.slot0.fee_protocol {
+            bail!("fee_protocol mismatch");
+        }
+
+        if instance
+            .feeGrowthGlobal0X128()
+            .block(block)
+            .call()
+            .await?
+            .feeGrowthGlobal0X128
+            != self.fee_growth_global_0_x128
+        {
+            bail!("fee_growth_global_0_x128 mismatch");
+        }
+
+        if instance
+            .feeGrowthGlobal1X128()
+            .block(block)
+            .call()
+            .await?
+            .feeGrowthGlobal1X128
+            != self.fee_growth_global_1_x128
+        {
+            bail!("fee_growth_global_1_x128 mismatch");
+        }
+
+        for (slot, simulated_value) in &self.storage.storage {
+            let slot: U256 = (*slot).into();
+
+            match slot {
+                SLOT0_SLOT
+                | FEE_GROWTH_GLOBAL_0_X128_SLOT
+                | FEE_GROWTH_GLOBAL_1_X128_SLOT
+                | LIQUIDITY_SLOT => continue,
+                _ => {}
+            }
+
+            let real_value = provider
+                .get_storage_at(self.address, slot)
+                .block_id(block)
+                .await?;
+
+            if *simulated_value != real_value {
+                bail!(
+                    "storage mismatch (pool {}) on block {block_number} at {slot}, real {} != {}",
+                    self.address,
+                    hex::encode(real_value.to_be_bytes::<32>()),
+                    hex::encode(simulated_value.to_be_bytes::<32>())
+                );
+            }
+        }
+
+        Ok(true)
     }
 }
 

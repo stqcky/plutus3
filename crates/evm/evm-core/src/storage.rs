@@ -6,7 +6,7 @@ use crate::EVM;
 #[derive(Debug, Clone)]
 pub struct SmartContractStorage {
     address: Address,
-    storage: B256Map<U256>,
+    pub storage: B256Map<U256>,
 }
 
 impl SmartContractStorage {

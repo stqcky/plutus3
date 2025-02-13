@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Instant};
 use alloy::{
     primitives::{Address, U256, address},
     providers::{Provider, ProviderBuilder},
-    rpc::client::ClientBuilder,
+    rpc::{client::ClientBuilder, types::BlockTransactionsKind},
 };
 use dotenvy_macro::dotenv;
 use futures::{StreamExt as _, pin_mut};
@@ -12,9 +12,10 @@ use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::registry::ProtocolRegistry;
 use plutus_defi_protocols_uniswap::{v2::UniswapV2Protocol, v3::UniswapV3Protocol};
 use plutus_evm::EVM;
-use plutus_monitoring::StateMonitor;
+use plutus_monitoring::{StateChange, StateMonitor, health::HealthMonitor};
 use plutus_storage::Storage;
 use plutus_token_graph::{Step, TokenGraph};
+use tokio::sync::mpsc;
 
 fn init_tracing() {
     tracing_subscriber::fmt()
@@ -39,7 +40,15 @@ async fn main() -> anyhow::Result<()> {
 
     let block_number = provider.get_block_number().await?;
 
-    let blockchain = Blockchain::new(provider.get_chain_id().await?);
+    tracing::info!("startup block: {block_number}");
+
+    let state_monitor = StateMonitor::new(provider.clone());
+
+    let (state_tx, mut state_rx) = mpsc::channel::<StateChange>(1024);
+
+    state_monitor.subscribe_blocks(state_tx).await?;
+
+    // let blockchain = Blockchain::new(provider.get_chain_id().await?);
     let storage = Storage::new().await?;
 
     let protocol_registry = ProtocolRegistry::new(provider.clone())
@@ -51,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
         .discover_and_store(block_number, &storage)
         .await?;
 
-    let mut evm = EVM::new(provider.clone(), block_number.into()).await?;
+    let mut evm = EVM::new_on_block(provider.clone(), block_number).await?;
 
     let pools = if UPDATE_CACHE {
         tracing::info!("updating cache");
@@ -80,13 +89,42 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("creating token graph");
     let mut token_graph = TokenGraph::new(pools, 1.0, &mut evm);
 
-    let blocks = StateMonitor::monitor_blocks(provider.clone()).await?;
-    pin_mut!(blocks);
+    let mut caught_up_block_number = block_number;
+    let mut current_block = provider.get_block_number().await?;
 
-    while let Some(block) = blocks.next().await {
-        tracing::info!("block {}", block.block.number);
+    // while current_block > caught_up_block_number {
+    //     tracing::info!("catching up: current = {caught_up_block_number}, latest = {current_block}");
+    //
+    //     let header = provider
+    //         .get_block_by_number(
+    //             (caught_up_block_number + 1).into(),
+    //             BlockTransactionsKind::Hashes,
+    //         )
+    //         .await?
+    //         .unwrap()
+    //         .header;
+    //
+    //     let state = state_monitor.get_state_changes(header).await;
+    //
+    //     token_graph.apply_state(state.changes, &mut evm);
+    //
+    //     caught_up_block_number += 1;
+    //     current_block = provider.get_block_number().await?;
+    // }
+
+    let health_monitor = HealthMonitor::new(provider.clone());
+
+    // let blocks = state_monitor.monitor_blocks().await?;
+    // pin_mut!(blocks);
+
+    let mut evm = EVM::new(provider.clone()).await?;
+
+    // while let Some(block) = blocks.next().await {
+    while let Some(block) = state_rx.recv().await {
+        tracing::info!("block {}", block.block_header.number);
 
         token_graph.apply_state(block.changes, &mut evm);
+        health_monitor.check_health(block.block_header.number, token_graph.pools.clone());
 
         for mut opportunity in token_graph.find_opportunities().await {
             let Some(x) = optimize_profit(&mut opportunity, &mut evm) else {
