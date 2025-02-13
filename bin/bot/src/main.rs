@@ -58,15 +58,13 @@ async fn main() -> anyhow::Result<()> {
         .discover_and_store(block_number, &storage)
         .await?;
 
-    let mut evm = EVM::new_on_block(provider.clone(), block_number).await?;
-
     let pools = if UPDATE_CACHE {
         tracing::info!("updating cache");
 
         let now = Instant::now();
 
         let filtered = protocol_registry
-            .get_filtered_pools(&storage, &mut evm, 5_000.0)
+            .get_filtered_pools(&storage, 2_000.0, block_number.into())
             .await?;
 
         protocol_registry
@@ -77,19 +75,22 @@ async fn main() -> anyhow::Result<()> {
 
         filtered
     } else {
-        protocol_registry
-            .get_cached_filtered_pools(&storage, &mut evm)
-            .await?
+        todo!()
+        // protocol_registry
+        //     .get_cached_filtered_pools(&storage, &mut evm)
+        //     .await?
     };
 
     tracing::info!("pool count: {}", pools.len());
+
+    let mut evm = EVM::new_on_block(provider.clone(), block_number);
 
     tracing::info!("creating token graph");
     let mut token_graph = TokenGraph::new(pools, 1.0, &mut evm);
 
     let health_monitor = HealthMonitor::new(provider.clone());
 
-    let mut evm = EVM::new(provider.clone()).await?;
+    // let mut evm = EVM::new(provider.clone(), block_number);
 
     // while let Some(block) = blocks.next().await {
     while let Some(state_change) = state_rx.recv().await {
@@ -106,10 +107,9 @@ async fn main() -> anyhow::Result<()> {
             if catching_up { ", catching up" } else { "" }
         );
 
-        if catching_up {
-            let mut evm =
-                EVM::new_on_block(provider.clone(), state_change.block_header.number).await?;
+        let mut evm = EVM::new_on_block(provider.clone(), state_change.block_header.number);
 
+        if catching_up {
             token_graph.apply_state(state_change.changes, &mut evm);
             health_monitor
                 .check_health(state_change.block_header.number, token_graph.pools.clone());

@@ -1,4 +1,4 @@
-use IERC20::{balanceOfCall, decimalsCall, symbolCall};
+use IERC20::{IERC20Instance, balanceOfCall, decimalsCall, symbolCall};
 use derive_more::Display;
 use plutus_evm::{
     EVM,
@@ -48,6 +48,19 @@ impl ERC20 {
             address,
             symbol: evm.call(address, symbolCall::new(()))?.output._0,
             decimals: evm.call(address, decimalsCall::new(()))?.output._0,
+        })
+    }
+
+    pub async fn new_with_provider<P: Provider>(
+        address: Address,
+        provider: P,
+    ) -> Result<Self, plutus_evm::alloy::contract::Error> {
+        let instance = IERC20Instance::new(address, provider);
+
+        Ok(Self {
+            address,
+            symbol: instance.symbol().call().await?._0,
+            decimals: instance.decimals().call().await?._0,
         })
     }
 

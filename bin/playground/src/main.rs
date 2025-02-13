@@ -5,7 +5,7 @@ use alloy::{
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::Protocol;
 use plutus_evm::EVM;
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use alloy::{providers::ProviderBuilder, rpc::client::ClientBuilder};
 use dotenvy_macro::dotenv;
@@ -13,6 +13,7 @@ use plutus_defi_protocols_protocol::ProtocolFactory;
 use plutus_defi_protocols_uniswap::v2::{UniswapV2Protocol, factory::UniswapV2Factory};
 
 pub const USDC: Address = address!("af88d065e77c8cc2239327c5edb3a432268e5831");
+pub const WETH: Address = address!("82aF49447D8a07e3bd95BD0d56f35241523fBab1");
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -25,32 +26,38 @@ async fn main() -> anyhow::Result<()> {
         ),
     );
 
-    let uniswapv2 = uniswap_v2_protocol(provider.clone()).await?;
+    let block_number = provider.get_block_number().await?;
+    let now = Instant::now();
+    let mut evm = EVM::new(provider.clone(), block_number);
+    println!("{:?}", now.elapsed());
 
-    let mut evm = EVM::new(provider.clone()).await?;
+    let uni = uniswap_v2_protocol(provider.clone()).await?;
 
-    let usdt = ERC20::new(
-        address!("Fd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9"),
-        &mut evm,
-    )?;
-    let weth = ERC20::new(
-        address!("82aF49447D8a07e3bd95BD0d56f35241523fBab1"),
-        &mut evm,
-    )?;
+    let v2_pool = address!("F64Dfe17C8b87F012FCf50FbDA1D62bfA148366a");
 
-    let usdc = ERC20::new(USDC, &mut evm)?;
+    let now = Instant::now();
+    let pool = uni.create_pool(v2_pool, &mut evm)?;
+    println!("{:?}", now.elapsed());
 
-    let pools = uniswapv2.get_pools(usdc.address, weth.address, &mut evm)?;
+    let now = Instant::now();
+    let pool = uni.create_pool(v2_pool, &mut evm)?;
+    println!("{:?}", now.elapsed());
 
-    let mut pool = pools[0].clone();
+    // let now = Instant::now();
+    // let pool = uni
+    //     .create_pool_with_provider(v2_pool, provider.clone())
+    //     .await?;
+    // println!("{:?}", now.elapsed());
+    //
+    // let now = Instant::now();
+    // let pool = uni
+    //     .create_pool_with_provider(v2_pool, provider.clone())
+    //     .await?;
+    // println!("{:?}", now.elapsed());
 
-    println!("{}", pool.address());
-
-    let out = pool.simulate_swap(weth.address, weth.to_token_amount(1.0), &mut evm);
-    let out = usdc.to_float_amount(out);
-
-    println!("{out}");
-
+    // let pools = uni.get_pools(USDC, WETH, &mut evm)?;
+    // println!("{}", pools[0].address());
+    //
     Ok(())
 }
 

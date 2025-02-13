@@ -1,5 +1,6 @@
 use IUniswapV3Factory::{IUniswapV3FactoryInstance, PoolCreated, getPoolCall};
 use alloy::{
+    eips::BlockId,
     primitives::{Address, BlockNumber, ChainId, address, aliases::U24},
     providers::Provider,
     sol,
@@ -35,6 +36,7 @@ sol!(
     }
 );
 
+#[derive(Clone, Copy)]
 pub struct UniswapV3Factory {
     address: Address,
 }
@@ -63,6 +65,30 @@ impl UniswapV3Factory {
             Ok(None)
         } else {
             Ok(Some(UniswapV3Pool::new(address, evm)?))
+        }
+    }
+
+    pub async fn get_pool_with_provider<P: Provider>(
+        &self,
+        token0: Address,
+        token1: Address,
+        fee: FeeAmount,
+        provider: P,
+    ) -> Result<Option<UniswapV3Pool>, alloy::contract::Error> {
+        let instance = IUniswapV3FactoryInstance::new(self.address, &provider);
+
+        let address = instance
+            .getPool(token0, token1, U24::from(fee as u32))
+            .call()
+            .await?
+            .pool;
+
+        if address.is_zero() {
+            Ok(None)
+        } else {
+            Ok(Some(
+                UniswapV3Pool::new_with_provider(address, provider, BlockId::latest()).await?,
+            ))
         }
     }
 

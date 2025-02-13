@@ -1,14 +1,21 @@
+use std::{sync::Arc, time::Instant};
+
 use alloy::{
+    eips::BlockId,
     primitives::{Address, BlockNumber, ChainId, U256, address},
     providers::Provider,
 };
 use anyhow::Context;
+use futures::future;
 use hashbrown::HashMap;
 use plutus_defi_erc20::ERC20;
 use plutus_evm::{EVM, errors::EvmCallError};
 use plutus_storage::{IdentifiedLiquidityPool, Storage};
+use tokio::{sync::Semaphore, task::spawn_blocking};
 
-use crate::{DiscoverableProtocol, ProtocolFactory, pool::LiquidityPool};
+use crate::{DiscoverableProtocol, ProtocolFactory, filtering::PoolFilter, pool::LiquidityPool};
+
+pub const POOL_CREATION_TASK_LIMIT: usize = 50;
 
 pub struct ProtocolRegistry<P> {
     chain_id: ChainId,
@@ -88,61 +95,122 @@ impl<P: Provider> ProtocolRegistry<P> {
         Ok(())
     }
 
-    pub async fn get_stored_pools(
+    async fn create_pools_from_records(
         &self,
-        storage: &Storage,
-        evm: &mut EVM<P>,
+        records: Vec<IdentifiedLiquidityPool>,
+        block: BlockId,
     ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
     where
-        P: std::fmt::Debug + 'static,
+        P: Clone + 'static,
     {
-        let identified_pool_records = storage.get_pools().await?;
+        let mut pools_by_protocol: HashMap<String, Vec<Address>> = HashMap::new();
+
+        let now = Instant::now();
+        tracing::info!("creating objects");
+
+        for record in records {
+            pools_by_protocol
+                .entry(record.protocol)
+                .or_default()
+                .push(record.address);
+        }
 
         let mut pools = vec![];
 
-        for pool_record in identified_pool_records {
-            let protocol = &self.protocols[&pool_record.protocol];
+        for (protocol, addresses) in pools_by_protocol {
+            let protocol: Arc<dyn DiscoverableProtocol<P>> =
+                self.protocols[&protocol].clone().into();
 
-            let Ok(pool) = protocol.create_pool(pool_record.address, evm) else {
-                continue;
-            };
-
-            pools.push(pool);
+            pools.extend(
+                self.create_protocol_pools(protocol, addresses, block)
+                    .await?,
+            );
         }
 
+        tracing::info!("objects created in {:?}", now.elapsed());
+
         Ok(pools)
+    }
+
+    pub async fn get_stored_pools(
+        &self,
+        storage: &Storage,
+        block: BlockId,
+    ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
+    where
+        P: std::fmt::Debug + 'static + Clone,
+    {
+        self.create_pools_from_records(storage.get_pools().await?, block)
+            .await
+    }
+
+    async fn create_protocol_pools(
+        &self,
+        protocol: Arc<dyn DiscoverableProtocol<P>>,
+        addresses: Vec<Address>,
+        block: BlockId,
+    ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
+    where
+        P: Clone + 'static,
+    {
+        let semaphore = Arc::new(Semaphore::new(POOL_CREATION_TASK_LIMIT));
+
+        let tasks: Vec<_> = addresses
+            .into_iter()
+            .map(|address| {
+                let protocol = protocol.clone();
+                let provider = self.provider.clone();
+                let semaphore = semaphore.clone();
+
+                tokio::spawn(async move {
+                    let _permit = semaphore.acquire_owned().await.unwrap();
+
+                    protocol
+                        .create_pool_with_provider(address, provider, block)
+                        .await
+                })
+            })
+            .collect();
+
+        Ok(future::try_join_all(tasks)
+            .await?
+            .into_iter()
+            .filter_map(Result::ok)
+            .collect())
     }
 
     pub async fn get_filtered_pools(
         &self,
         storage: &Storage,
-        evm: &mut EVM<P>,
         usd_value: f64,
+        block: BlockNumber,
     ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
     where
-        P: std::fmt::Debug + 'static,
+        P: std::fmt::Debug + 'static + Clone,
     {
-        let pools = self.get_stored_pools(storage, evm).await?;
+        let pools = self.get_stored_pools(storage, block.into()).await?;
 
-        let pools: Vec<_> = pools
-            .into_iter()
-            .filter(|pool| pool.is_liquidity_valid())
-            .collect();
+        let filter = PoolFilter::new(
+            usd_value,
+            self.provider.clone(),
+            block,
+            self.protocols.values().cloned().collect(),
+        )
+        .await?;
 
-        let weth_value = usd_value / self.get_weth_usd_value(evm)?;
+        let now = Instant::now();
+        tracing::info!("filtering pools");
 
-        let pools: Vec<_> = pools
-            .into_iter()
-            .filter(|pool| {
-                if let Ok(true) =
-                    self.pool_has_adequate_tvl(pool.as_ref(), usd_value, weth_value, evm)
-                {
-                    true
-                } else {
-                    false
-                }
-            })
-            .collect();
+        let pools = filter
+            .filter_pools(
+                pools,
+                self.provider.clone(),
+                self.protocols.values().cloned().collect(),
+                block,
+            )
+            .await?;
+
+        tracing::info!("filtered in {:?}", now.elapsed());
 
         Ok(pools)
     }
@@ -168,42 +236,21 @@ impl<P: Provider> ProtocolRegistry<P> {
     pub async fn get_cached_filtered_pools(
         &self,
         storage: &Storage,
-        evm: &mut EVM<P>,
-    ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>> {
+        block: BlockId,
+    ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
+    where
+        P: Clone + 'static,
+    {
         let pool_records = storage
             .get_filtered_pools(0)
             .await?
             .expect("pools are cached");
 
-        let mut pools = vec![];
-
-        for pool in pool_records {
-            let protocol = &self.protocols[&pool.protocol];
-
-            let Ok(pool) = protocol.create_pool(pool.address, evm) else {
-                continue;
-            };
-
-            pools.push(pool);
-        }
-
-        Ok(pools)
+        self.create_pools_from_records(pool_records, block).await
     }
 
     pub fn protocol_identifiers(&self) -> Vec<String> {
         self.protocols.keys().cloned().collect()
-    }
-
-    fn get_weth_usd_value(&self, evm: &mut EVM<P>) -> Result<f64, EvmCallError<P>> {
-        let mut usdt_weth_pool = self.protocols["uniswap_v3"]
-            .create_pool(address!("0x42161084d0672e1d3F26a9B53E653bE2084ff19C"), evm)?;
-
-        let usdt = ERC20::new(address!("fd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9"), evm)?;
-        let weth = ERC20::new(address!("82af49447d8a07e3bd95bd0d56f35241523fbab1"), evm)?;
-
-        let value = usdt_weth_pool.simulate_swap(weth.address, weth.to_token_amount(1.0), evm);
-
-        Ok(usdt.to_float_amount(value))
     }
 
     fn get_pools(
@@ -219,43 +266,6 @@ impl<P: Provider> ProtocolRegistry<P> {
         }
 
         Ok(pools)
-    }
-
-    fn pool_has_adequate_tvl(
-        &self,
-        pool: &dyn LiquidityPool<P>,
-        required_usd_value: f64,
-        required_weth_value: f64,
-        evm: &mut EVM<P>,
-    ) -> Result<bool, EvmCallError<P>> {
-        let (token0, token1) = pool.token_addresses();
-        let (locked0, locked1) = pool.tokens_locked(evm)?;
-
-        let usdt = ERC20::new(address!("fd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9"), evm)?;
-        let usdc = ERC20::new(address!("af88d065e77c8cc2239327c5edb3a432268e5831"), evm)?;
-        let weth = ERC20::new(address!("82af49447d8a07e3bd95bd0d56f35241523fbab1"), evm)?;
-
-        for usd_token in [usdt, usdc] {
-            let usd_value0 = self.get_token_value(token0, usd_token.address, locked0, evm)?;
-            let usd_value1 = self.get_token_value(token1, usd_token.address, locked1, evm)?;
-
-            let usd_value = usd_token.to_float_amount(usd_value0 + usd_value1);
-
-            if usd_value >= required_usd_value {
-                return Ok(true);
-            }
-        }
-
-        let weth_value0 = self.get_token_value(token0, weth.address, locked0, evm)?;
-        let weth_value1 = self.get_token_value(token1, weth.address, locked1, evm)?;
-
-        let weth_value = weth.to_float_amount(weth_value0 + weth_value1);
-
-        if weth_value >= required_weth_value {
-            return Ok(true);
-        }
-
-        Ok(false)
     }
 
     pub fn get_token_value(

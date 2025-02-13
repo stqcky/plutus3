@@ -4,6 +4,7 @@ pub mod pool;
 mod tick_bitmap;
 
 use alloy::{
+    eips::BlockId,
     primitives::{Address, BlockNumber, ChainId},
     providers::Provider,
 };
@@ -17,10 +18,12 @@ use plutus_evm::{EVM, errors::EvmCallError};
 use pool::UniswapV3Pool;
 use strum::IntoEnumIterator as _;
 
+#[derive(Clone, Copy)]
 pub struct UniswapV3Protocol {
     factory: UniswapV3Factory,
 }
 
+#[async_trait]
 impl<P: Provider + 'static> Protocol<P> for UniswapV3Protocol {
     fn get_pools(
         &self,
@@ -28,14 +31,37 @@ impl<P: Provider + 'static> Protocol<P> for UniswapV3Protocol {
         token1: Address,
         evm: &mut EVM<P>,
     ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, EvmCallError<P>> {
-        let mut pools = vec![];
+        let mut pools: Vec<Box<dyn LiquidityPool<P>>> = vec![];
 
         for fee in FeeAmount::iter() {
             let Some(pool) = self.factory.get_pool(token0, token1, fee, evm)? else {
                 continue;
             };
 
-            pools.push(Box::new(pool) as Box<dyn LiquidityPool<P>>);
+            pools.push(Box::new(pool));
+        }
+
+        Ok(pools)
+    }
+
+    async fn get_pools_with_provider(
+        &self,
+        token0: Address,
+        token1: Address,
+        provider: P,
+    ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, alloy::contract::Error> {
+        let mut pools: Vec<Box<dyn LiquidityPool<P>>> = vec![];
+
+        for fee in FeeAmount::iter() {
+            let Some(pool) = self
+                .factory
+                .get_pool_with_provider(token0, token1, fee, &provider)
+                .await?
+            else {
+                continue;
+            };
+
+            pools.push(Box::new(pool));
         }
 
         Ok(pools)
@@ -47,6 +73,17 @@ impl<P: Provider + 'static> Protocol<P> for UniswapV3Protocol {
         evm: &mut EVM<P>,
     ) -> Result<Box<dyn LiquidityPool<P>>, EvmCallError<P>> {
         Ok(Box::new(UniswapV3Pool::new(address, evm)?) as Box<dyn LiquidityPool<P>>)
+    }
+
+    async fn create_pool_with_provider(
+        &self,
+        address: Address,
+        provider: P,
+        block: BlockId,
+    ) -> Result<Box<dyn LiquidityPool<P>>, alloy::contract::Error> {
+        Ok(Box::new(
+            UniswapV3Pool::new_with_provider(address, provider, block).await?,
+        ))
     }
 }
 

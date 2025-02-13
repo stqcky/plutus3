@@ -55,6 +55,31 @@ impl UniswapV2Pool {
         })
     }
 
+    pub async fn new_with_provider<P: Provider>(
+        address: Address,
+        provider: P,
+        block: BlockId,
+    ) -> Result<Self, alloy::contract::Error> {
+        let instance = IUniswapV2PoolInstance::new(address, &provider);
+
+        let reserves = instance.getReserves().call().block(block).await?;
+
+        Ok(Self {
+            address,
+            token0: ERC20::new_with_provider(
+                instance.token0().call().block(block).await?.token0,
+                &provider,
+            )
+            .await?,
+            token1: ERC20::new_with_provider(
+                instance.token1().call().block(block).await?.token1,
+                &provider,
+            )
+            .await?,
+            reserves: Reserves(reserves._reserve0, reserves._reserve1),
+        })
+    }
+
     pub fn swap(amount_in: U256, reserve_in: U256, reserve_out: U256) -> U256 {
         if amount_in.is_zero() || reserve_in.is_zero() || reserve_out.is_zero() {
             return U256::ZERO;

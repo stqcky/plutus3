@@ -1,5 +1,6 @@
 use IUniswapV2Factory::{IUniswapV2FactoryInstance, PairCreated, getPairCall};
 use alloy::{
+    eips::BlockId,
     primitives::{Address, BlockNumber, ChainId, address},
     providers::Provider,
     sol,
@@ -8,6 +9,8 @@ use alloy::{
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use plutus_evm::{EVM, errors::EvmCallError};
+
+use super::pool::UniswapV2Pool;
 
 lazy_static! {
     pub static ref FACTORY_ADDRESS: HashMap<ChainId, Address> =
@@ -22,6 +25,7 @@ sol!(
     }
 );
 
+#[derive(Clone, Copy)]
 pub struct UniswapV2Factory {
     address: Address,
 }
@@ -31,12 +35,12 @@ impl UniswapV2Factory {
         Self { address }
     }
 
-    pub fn get_pool_address<P: Provider>(
+    pub fn get_pool<P: Provider>(
         &self,
         token0: Address,
         token1: Address,
         evm: &mut EVM<P>,
-    ) -> Result<Option<Address>, EvmCallError<P>> {
+    ) -> Result<Option<UniswapV2Pool>, EvmCallError<P>> {
         let address = evm
             .call(self.address, getPairCall::new((token0, token1)))?
             .output
@@ -45,7 +49,26 @@ impl UniswapV2Factory {
         if address.is_zero() {
             Ok(None)
         } else {
-            Ok(Some(address))
+            Ok(Some(UniswapV2Pool::new(address, evm)?))
+        }
+    }
+
+    pub async fn get_pool_with_provider<P: Provider>(
+        &self,
+        token0: Address,
+        token1: Address,
+        provider: P,
+    ) -> Result<Option<UniswapV2Pool>, alloy::contract::Error> {
+        let instance = IUniswapV2FactoryInstance::new(self.address, &provider);
+
+        let address = instance.getPair(token0, token1).call().await?._0;
+
+        if address.is_zero() {
+            Ok(None)
+        } else {
+            Ok(Some(
+                UniswapV2Pool::new_with_provider(address, provider, BlockId::latest()).await?,
+            ))
         }
     }
 

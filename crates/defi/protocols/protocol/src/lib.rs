@@ -1,15 +1,19 @@
 use alloy::{
+    eips::BlockId,
     primitives::{Address, BlockNumber, ChainId},
     providers::Provider,
 };
 use async_trait::async_trait;
+use dyn_clone::DynClone;
 use plutus_evm::{EVM, errors::EvmCallError};
 use pool::LiquidityPool;
 
+pub mod filtering;
 pub mod pool;
 pub mod registry;
 
-pub trait Protocol<P: Provider> {
+#[async_trait]
+pub trait Protocol<P: Provider>: Send + Sync + DynClone {
     fn get_pools(
         &self,
         token0: Address,
@@ -17,15 +21,31 @@ pub trait Protocol<P: Provider> {
         evm: &mut EVM<P>,
     ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, EvmCallError<P>>;
 
+    async fn get_pools_with_provider(
+        &self,
+        token0: Address,
+        token1: Address,
+        provider: P,
+    ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, alloy::contract::Error>;
+
     fn create_pool(
         &self,
         address: Address,
         evm: &mut EVM<P>,
     ) -> Result<Box<dyn LiquidityPool<P>>, EvmCallError<P>>;
+
+    async fn create_pool_with_provider(
+        &self,
+        address: Address,
+        provider: P,
+        block: BlockId,
+    ) -> Result<Box<dyn LiquidityPool<P>>, alloy::contract::Error>;
 }
 
+dyn_clone::clone_trait_object!(<P: Provider> Protocol<P>);
+
 #[async_trait]
-pub trait DiscoverableProtocol<P: Provider>: Protocol<P> {
+pub trait DiscoverableProtocol<P: Provider>: Protocol<P> + DynClone {
     async fn discover(
         &self,
         from: BlockNumber,
@@ -33,6 +53,8 @@ pub trait DiscoverableProtocol<P: Provider>: Protocol<P> {
         provider: P,
     ) -> Result<Vec<Address>, alloy::contract::Error>;
 }
+
+dyn_clone::clone_trait_object!(<P: Provider> DiscoverableProtocol<P>);
 
 pub trait ProtocolFactory<P: Provider>: DiscoverableProtocol<P> + Sized {
     const IDENTIFIER: &'static str;

@@ -1,25 +1,23 @@
 use crate::errors::EvmCallError;
 use alloy::{
     network::Ethereum,
-    primitives::{BlockNumber, ChainId},
+    primitives::BlockNumber,
     providers::Provider,
     sol_types::{Revert, SolCall, SolError},
     transports::BoxTransport,
 };
-use anyhow::Context as _;
 use revm::{
     Context, Database as _, ExecuteEvm, MainBuilder, MainContext,
     context_interface::result::{ExecutionResult, Output},
     database_interface::WrapDatabaseAsync,
     primitives::{Address, TxKind, U256},
 };
-use revm_database::{AlloyDB, BlockId, CacheDB};
+use revm_database::{AlloyDB, CacheDB};
 
 pub type EvmDatabase<P> = CacheDB<WrapDatabaseAsync<AlloyDB<BoxTransport, Ethereum, P>>>;
 
 pub struct EVM<P: Provider> {
     db: EvmDatabase<P>,
-    chain_id: ChainId,
     static_block_number: Option<BlockNumber>,
 }
 
@@ -29,35 +27,24 @@ pub struct EvmCall<T> {
 }
 
 impl<P: Provider> EVM<P> {
-    pub async fn new(provider: P) -> anyhow::Result<Self> {
-        let chain_id = provider
-            .get_chain_id()
-            .await
-            .context("failed to fetch chain id")?;
+    pub fn new(provider: P, block_number: BlockNumber) -> Self {
+        let alloydb = AlloyDB::new(provider, block_number.into());
+        let db = CacheDB::new(WrapDatabaseAsync::new(alloydb).expect("tokio runtime is available"));
 
-        let block_number = provider.get_block_number().await?.into();
-
-        let alloydb = AlloyDB::new(provider, block_number);
-        let db = CacheDB::new(WrapDatabaseAsync::new(alloydb).context("failed to wrap database")?);
-
-        Ok(Self {
+        Self {
             db,
-            chain_id,
             static_block_number: None,
-        })
+        }
     }
 
-    pub async fn new_on_block(provider: P, block_number: BlockNumber) -> anyhow::Result<Self> {
-        let chain_id = provider.get_chain_id().await?;
-
+    pub fn new_on_block(provider: P, block_number: BlockNumber) -> Self {
         let alloydb = AlloyDB::new(provider, block_number.into());
-        let db = CacheDB::new(WrapDatabaseAsync::new(alloydb).context("failed to wrap database")?);
+        let db = CacheDB::new(WrapDatabaseAsync::new(alloydb).expect("tokio runtime is available"));
 
-        Ok(Self {
+        Self {
             db,
-            chain_id,
             static_block_number: Some(block_number),
-        })
+        }
     }
 
     pub fn storage(&mut self, address: Address, slot: U256) -> U256 {

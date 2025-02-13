@@ -1,4 +1,5 @@
 use alloy::{
+    eips::BlockId,
     primitives::{Address, BlockNumber, ChainId},
     providers::Provider,
 };
@@ -13,10 +14,12 @@ use pool::UniswapV2Pool;
 pub mod factory;
 pub mod pool;
 
+#[derive(Clone, Copy)]
 pub struct UniswapV2Protocol {
     factory: UniswapV2Factory,
 }
 
+#[async_trait]
 impl<P: Provider + 'static> Protocol<P> for UniswapV2Protocol {
     fn get_pools(
         &self,
@@ -24,10 +27,28 @@ impl<P: Provider + 'static> Protocol<P> for UniswapV2Protocol {
         token1: Address,
         evm: &mut EVM<P>,
     ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, EvmCallError<P>> {
-        let address = self.factory.get_pool_address(token0, token1, evm)?;
+        let pool = self.factory.get_pool(token0, token1, evm)?;
 
-        if let Some(address) = address {
-            Ok(vec![self.create_pool(address, evm)?])
+        if let Some(pool) = pool {
+            Ok(vec![Box::new(pool)])
+        } else {
+            Ok(vec![])
+        }
+    }
+
+    async fn get_pools_with_provider(
+        &self,
+        token0: Address,
+        token1: Address,
+        provider: P,
+    ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, alloy::contract::Error> {
+        let pool = self
+            .factory
+            .get_pool_with_provider(token0, token1, &provider)
+            .await?;
+
+        if let Some(pool) = pool {
+            Ok(vec![Box::new(pool)])
         } else {
             Ok(vec![])
         }
@@ -38,7 +59,18 @@ impl<P: Provider + 'static> Protocol<P> for UniswapV2Protocol {
         address: Address,
         evm: &mut EVM<P>,
     ) -> Result<Box<dyn LiquidityPool<P>>, EvmCallError<P>> {
-        Ok(Box::new(UniswapV2Pool::new(address, evm)?) as Box<dyn LiquidityPool<P>>)
+        Ok(Box::new(UniswapV2Pool::new(address, evm)?))
+    }
+
+    async fn create_pool_with_provider(
+        &self,
+        address: Address,
+        provider: P,
+        block: BlockId,
+    ) -> Result<Box<dyn LiquidityPool<P>>, alloy::contract::Error> {
+        Ok(Box::new(
+            UniswapV2Pool::new_with_provider(address, provider, block).await?,
+        ))
     }
 }
 

@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use IUniswapV3Pool::{IUniswapV3PoolInstance, feeCall, tickSpacingCall, token0Call, token1Call};
+use IUniswapV3Pool::{
+    IUniswapV3PoolInstance, feeCall, slot0Return, tickSpacingCall, token0Call, token1Call,
+};
 use alloy::{
     eips::BlockId,
     primitives::{
@@ -192,11 +194,16 @@ pub struct Slot0 {
     pub fee_protocol: u8,
 }
 
-enum Slot {
-    Slot0,
-    FeeGrowthGlobal0X128,
-    FeeGrowthGlobal1X128,
-    Liquidity,
+impl From<slot0Return> for Slot0 {
+    fn from(value: slot0Return) -> Self {
+        let slot0 = value._0;
+
+        Self {
+            sqrt_price_x96: slot0.sqrt_price_x96,
+            tick: slot0.tick,
+            fee_protocol: slot0.fee_protocol,
+        }
+    }
 }
 
 struct SwapCache {
@@ -253,6 +260,53 @@ impl UniswapV3Pool {
             ticks: SolidityMapping::new(),
             tick_bitmap: SolidityMapping::new(),
             storage,
+        })
+    }
+
+    pub async fn new_with_provider<P: Provider>(
+        address: Address,
+        provider: P,
+        block: BlockId,
+    ) -> Result<Self, alloy::contract::Error> {
+        let instance = IUniswapV3PoolInstance::new(address, &provider);
+
+        Ok(Self {
+            address,
+            token0: ERC20::new_with_provider(
+                instance.token0().block(block).call().await?.token0,
+                &provider,
+            )
+            .await?,
+            token1: ERC20::new_with_provider(
+                instance.token1().block(block).call().await?.token1,
+                &provider,
+            )
+            .await?,
+            fee: instance.fee().block(block).call().await?.fee,
+            tick_spacing: instance
+                .tickSpacing()
+                .block(block)
+                .call()
+                .await?
+                .tickSpacing,
+            slot0: instance.slot0().block(block).call().await?.into(),
+            fee_growth_global_0_x128: instance
+                .feeGrowthGlobal0X128()
+                .block(block)
+                .call()
+                .await?
+                .feeGrowthGlobal0X128,
+            fee_growth_global_1_x128: instance
+                .feeGrowthGlobal1X128()
+                .block(block)
+                .call()
+                .await?
+                .feeGrowthGlobal1X128,
+            liquidity: instance.liquidity().block(block).call().await?.liquidity,
+
+            ticks: SolidityMapping::new(),
+            tick_bitmap: SolidityMapping::new(),
+            storage: SmartContractStorage::new(address),
         })
     }
 
