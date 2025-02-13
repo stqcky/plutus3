@@ -13,6 +13,7 @@ use pool::UniswapV2Pool;
 
 pub mod factory;
 pub mod pool;
+pub mod router;
 
 #[derive(Clone, Copy)]
 pub struct UniswapV2Protocol {

@@ -182,3 +182,110 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
         Ok(true)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use alloy::{primitives::address, providers::ProviderBuilder, rpc::client::ClientBuilder};
+    use dotenvy_macro::dotenv;
+
+    use crate::v2::router::UniswapV2Router;
+
+    use super::*;
+
+    const POOLS: &[Address] = &[
+        address!("F64Dfe17C8b87F012FCf50FbDA1D62bfA148366a"),
+        address!("d04Bc65744306A5C149414dd3CD5c984D9d3470d"),
+        address!("6FA774876Fe6badEB1a4d0c6dCf9430A72d3873B"),
+        address!("4c27B5E88c6d6ad95EBfAcEd535576608cA6fe0a"),
+        address!("3dA7FE3f0eD5c8e82A6E5b046C635274912a5db0"),
+    ];
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn swaps_are_correct() -> anyhow::Result<()> {
+        let provider = Arc::new(
+            ProviderBuilder::new().with_recommended_fillers().on_client(
+                ClientBuilder::default()
+                    .ipc(dotenv!("IPC_PROVIDER").to_string().into())
+                    .await?
+                    .boxed(),
+            ),
+        );
+
+        let block_number = provider.get_block_number().await?;
+        let mut evm = EVM::new(provider.clone(), block_number);
+
+        let router = UniswapV2Router::new(provider.clone());
+
+        for address in POOLS {
+            let mut pool = UniswapV2Pool::new(*address, &mut evm)?;
+
+            for amount in 1..100 {
+                let token0_out = pool.simulate_swap(
+                    pool.token0.address,
+                    pool.token0.to_token_amount(amount as f64),
+                    &mut evm,
+                );
+
+                let quoted_token0_out = router
+                    .get_amount_out(
+                        pool.token0.to_token_amount(amount as f64),
+                        U256::from(pool.reserves.0),
+                        U256::from(pool.reserves.1),
+                    )
+                    .await?;
+
+                if token0_out != quoted_token0_out {
+                    panic!(
+                        "swap mismatch: token0 -> token1, pool = {}, amount = {amount}, quoted {} != {}",
+                        pool.address, quoted_token0_out, token0_out
+                    );
+                }
+
+                let token1_out = pool.simulate_swap(
+                    pool.token1.address,
+                    pool.token1.to_token_amount(amount as f64),
+                    &mut evm,
+                );
+
+                let quoted_token1_out = router
+                    .get_amount_out(
+                        pool.token1.to_token_amount(amount as f64),
+                        U256::from(pool.reserves.1),
+                        U256::from(pool.reserves.0),
+                    )
+                    .await?;
+
+                if token1_out != quoted_token1_out {
+                    panic!(
+                        "swap mismatch: token1 -> token0, pool = {}, amount = {amount}, quoted {} != {}",
+                        pool.address, quoted_token1_out, token1_out
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn decoding_is_correct() -> anyhow::Result<()> {
+        let provider = Arc::new(
+            ProviderBuilder::new().with_recommended_fillers().on_client(
+                ClientBuilder::default()
+                    .ipc(dotenv!("IPC_PROVIDER").to_string().into())
+                    .await?
+                    .boxed(),
+            ),
+        );
+
+        let block_number = provider.get_block_number().await?;
+        let mut evm = EVM::new(provider.clone(), block_number);
+
+        for address in POOLS {
+            let pool = UniswapV2Pool::new(*address, &mut evm)?;
+            pool.verify_health(provider.clone(), block_number).await?;
+        }
+
+        Ok(())
+    }
+}
