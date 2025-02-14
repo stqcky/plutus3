@@ -1,9 +1,3 @@
-// WARNING
-// IT EATS MEMORY
-// FOR SOME REASON
-// DO NOT START UNTIL INVESTIGATION IS CONCLUDED
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
 use std::{sync::Arc, time::Instant};
 
 use alloy::{
@@ -93,9 +87,12 @@ async fn main() -> anyhow::Result<()> {
     let mut evm = EVM::new_on_block(provider.clone(), block_number);
 
     tracing::info!("creating token graph");
-    let mut token_graph = TokenGraph::new(pools, 1.0, &mut evm);
+    let now = Instant::now();
+    let mut token_graph = TokenGraph::new(pools, 1.0, block_number, provider.clone()).await?;
+    tracing::info!("token graph created in {:?}", now.elapsed());
 
     let health_monitor = HealthMonitor::new(provider.clone());
+    let mut last_health_check = Instant::now();
 
     // let mut evm = EVM::new(provider.clone(), block_number);
 
@@ -108,11 +105,11 @@ async fn main() -> anyhow::Result<()> {
             true
         };
 
-        tracing::info!(
-            "block {}{}",
-            state_change.block_header.number,
-            if catching_up { ", catching up" } else { "" }
-        );
+        // tracing::info!(
+        //     "block {}{}",
+        //     state_change.block_header.number,
+        //     if catching_up { ", catching up" } else { "" }
+        // );
 
         let mut evm = EVM::new_on_block(provider.clone(), state_change.block_header.number);
 
@@ -122,7 +119,13 @@ async fn main() -> anyhow::Result<()> {
         }
 
         token_graph.apply_state(state_change.changes, &mut evm);
-        health_monitor.check_health(state_change.block_header.number, token_graph.pools.clone());
+
+        if last_health_check.elapsed().as_secs() >= 30 {
+            health_monitor
+                .check_health(state_change.block_header.number, token_graph.pools.clone());
+
+            last_health_check = Instant::now();
+        }
 
         for mut opportunity in token_graph.find_opportunities().await {
             // simulate_opportunity(&mut opportunity, &mut evm, 1.0, &protocol_registry);
@@ -133,7 +136,7 @@ async fn main() -> anyhow::Result<()> {
             // let profit = calculate_opportunity(&mut opportunity, &mut evm, x) - x;
             // let usd_profit =
             //     get_usd_value(&opportunity[0].token0, profit, &mut evm, &protocol_registry);
-            //
+
             // if usd_profit >= 0.01 {
             simulate_opportunity(&mut opportunity, &mut evm, x, &protocol_registry);
             println!("");
@@ -174,12 +177,13 @@ fn simulate_opportunity<P: Provider + std::fmt::Debug>(
     for step in &mut *opportunity {
         let amount_out = step.pool.simulate_swap(step.token0.address, amount, evm);
         tracing::info!(
-            "{} ({}) -> {} ({}) on {}",
+            "{} ({}) -> {} ({}) on {} ({})",
             step.token0,
             step.token0.to_float_amount(amount),
             step.token1,
             step.token1.to_float_amount(amount_out),
-            step.pool.identifier()
+            step.pool.identifier(),
+            step.pool.address()
         );
         amount = amount_out;
     }

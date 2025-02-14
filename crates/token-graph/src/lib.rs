@@ -12,7 +12,7 @@ use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::pool::LiquidityPool;
 use plutus_evm::{
     EVM,
-    alloy::providers::Provider,
+    alloy::{eips::BlockId, primitives::BlockNumber, providers::Provider},
     revm::primitives::{Address, U256, address, map::AddressMap},
 };
 use tokio::task::spawn_blocking;
@@ -53,36 +53,58 @@ impl std::fmt::Display for WeightedPool {
     }
 }
 
-impl<P: Provider> TokenGraph<P> {
-    pub fn new(mut pools: Vec<Box<dyn LiquidityPool<P>>>, amount: f64, evm: &mut EVM<P>) -> Self {
+impl<P: Provider + Clone + 'static> TokenGraph<P> {
+    pub async fn new(
+        pools: Vec<Box<dyn LiquidityPool<P>>>,
+        amount: f64,
+        block: BlockNumber,
+        provider: P,
+    ) -> anyhow::Result<Self> {
         let mut graph = InnerTokenGraph::new();
 
+        let now = Instant::now();
         let tokens = get_unique_tokens(&pools);
+        tracing::info!("get_unique_tokens {:?}", now.elapsed());
 
+        let now = Instant::now();
         let pool_map = AddressMap::from_iter(
             pools
                 .iter()
                 .enumerate()
                 .map(|(i, pool)| (pool.address(), i)),
         );
+        tracing::info!("pool map {:?}", now.elapsed());
 
+        let now = Instant::now();
         let token_map = init_nodes(tokens, &mut graph);
+        tracing::info!("init_nodes {:?}", now.elapsed());
 
-        let pool_edge_map = init_edges(&mut pools, amount, &mut graph, &token_map, evm);
+        let now = Instant::now();
+        let pool_edge_map = init_edges(
+            pools.clone(),
+            amount,
+            &mut graph,
+            &token_map,
+            block,
+            provider,
+        )
+        .await?;
+        tracing::info!("init_edges {:?}", now.elapsed());
+
         tracing::info!("node count: {}", graph.node_count());
         tracing::info!("edge count: {}", graph.edge_count());
 
-        let dot = Dot::with_config(&graph, &[]);
-        std::fs::write("graph", format!("{dot}")).unwrap();
+        // let dot = Dot::with_config(&graph, &[]);
+        // std::fs::write("graph", format!("{dot}")).unwrap();
 
-        Self {
+        Ok(Self {
             pools,
             pool_map,
             graph,
             pool_edge_map,
             token_map,
             amount,
-        }
+        })
     }
 
     pub fn apply_state(&mut self, traces: Vec<AddressMap<HashMap<U256, U256>>>, evm: &mut EVM<P>) {
@@ -97,11 +119,17 @@ impl<P: Provider> TokenGraph<P> {
 
                 let (edge0, edge1) = self.pool_edge_map[&address];
 
+                let (token0, token1) = pool.tokens();
+
                 self.graph.edge_weight_mut(edge0).unwrap().weight =
-                    calculate_edge(pool.as_mut(), true, self.amount, evm).2;
+                    calculate_edge(pool.as_mut(), &token0, &token1, self.amount, evm)
+                        .pool
+                        .weight;
 
                 self.graph.edge_weight_mut(edge1).unwrap().weight =
-                    calculate_edge(pool.as_mut(), true, self.amount, evm).2;
+                    calculate_edge(pool.as_mut(), &token1, &token0, self.amount, evm)
+                        .pool
+                        .weight;
             }
         }
     }
@@ -249,54 +277,78 @@ fn init_nodes(tokens: Vec<ERC20>, graph: &mut InnerTokenGraph) -> AddressMap<Nod
     )
 }
 
-fn init_edges<P: Provider>(
-    pools: &mut [Box<dyn LiquidityPool<P>>],
+async fn init_edges<P: Provider + Clone + 'static>(
+    pools: Vec<Box<dyn LiquidityPool<P>>>,
     amount: f64,
     graph: &mut InnerTokenGraph,
     token_map: &AddressMap<NodeIndex>,
-    evm: &mut EVM<P>,
-) -> AddressMap<(EdgeIndex, EdgeIndex)> {
+    block: BlockNumber,
+    provider: P,
+) -> anyhow::Result<AddressMap<(EdgeIndex, EdgeIndex)>> {
     let mut edge_map = AddressMap::default();
 
-    for pool in pools {
-        let (edge0, edge1) = (
-            calculate_edge(pool.as_mut(), true, amount, evm),
-            calculate_edge(pool.as_mut(), false, amount, evm),
+    let tasks: Vec<_> = pools
+        .into_iter()
+        .map(|mut pool| {
+            let mut evm = EVM::new_on_block(provider.clone(), block);
+
+            spawn_blocking(move || {
+                let (token0, token1) = pool.tokens();
+
+                (
+                    calculate_edge(pool.as_mut(), &token0, &token1, amount, &mut evm),
+                    calculate_edge(pool.as_mut(), &token1, &token0, amount, &mut evm),
+                )
+            })
+        })
+        .collect();
+
+    let edge_pairs: Vec<_> = future::try_join_all(tasks).await?.into_iter().collect();
+
+    for (edge0, edge1) in edge_pairs {
+        let pool_address = edge0.pool.pool;
+
+        let edge0 = graph.add_edge(
+            token_map[&edge0.token0],
+            token_map[&edge0.token1],
+            edge0.pool,
         );
 
-        let edge0 = graph.add_edge(token_map[&edge0.0], token_map[&edge0.1], WeightedPool {
-            pool: pool.address(),
-            weight: edge0.2,
-        });
+        let edge1 = graph.add_edge(
+            token_map[&edge1.token0],
+            token_map[&edge1.token1],
+            edge1.pool,
+        );
 
-        let edge1 = graph.add_edge(token_map[&edge1.0], token_map[&edge1.1], WeightedPool {
-            pool: pool.address(),
-            weight: edge1.2,
-        });
-
-        edge_map.insert(pool.address(), (edge0, edge1));
+        edge_map.insert(pool_address, (edge0, edge1));
     }
 
-    edge_map
+    Ok(edge_map)
+}
+
+struct CalculatedEdge {
+    token0: Address,
+    token1: Address,
+    pool: WeightedPool,
 }
 
 fn calculate_edge<P: Provider>(
     pool: &mut dyn LiquidityPool<P>,
-    zero_for_one: bool,
+    token0: &ERC20,
+    token1: &ERC20,
     amount: f64,
     evm: &mut EVM<P>,
-) -> (Address, Address, f64) {
-    let (token0, token1) = pool.tokens();
-
-    let (token_in, token_out) = if zero_for_one {
-        (token0, token1)
-    } else {
-        (token1, token0)
-    };
-
-    let amount_in = token_in.to_token_amount(amount);
-    let amount_out = pool.simulate_swap(token_in.address, amount_in, evm);
+) -> CalculatedEdge {
+    let amount_in = token0.to_token_amount(amount);
+    let amount_out = pool.simulate_swap(token0.address, amount_in, evm);
     let weight = -(f64::from(amount_out) / f64::from(amount_in)).log10();
 
-    (token_in.address, token_out.address, weight)
+    CalculatedEdge {
+        token0: token0.address,
+        token1: token1.address,
+        pool: WeightedPool {
+            pool: pool.address(),
+            weight,
+        },
+    }
 }

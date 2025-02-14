@@ -11,7 +11,7 @@ use plutus_defi_erc20::ERC20;
 use plutus_evm::{EVM, errors::EvmCallError};
 
 #[async_trait]
-pub trait LiquidityPool<P: Provider>: DynClone + Send {
+pub trait LiquidityPool<P: Provider>: DynClone + Send + Sync {
     fn identifier(&self) -> &'static str;
     fn address(&self) -> Address;
 
