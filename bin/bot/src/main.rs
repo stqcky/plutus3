@@ -105,11 +105,11 @@ async fn main() -> anyhow::Result<()> {
             true
         };
 
-        // tracing::info!(
-        //     "block {}{}",
-        //     state_change.block_header.number,
-        //     if catching_up { ", catching up" } else { "" }
-        // );
+        tracing::info!(
+            "block {}{}",
+            state_change.block_header.number,
+            if catching_up { ", catching up" } else { "" }
+        );
 
         let mut evm = EVM::new_on_block(provider.clone(), state_change.block_header.number);
 
@@ -133,9 +133,9 @@ async fn main() -> anyhow::Result<()> {
                 continue;
             };
 
-            // let profit = calculate_opportunity(&mut opportunity, &mut evm, x) - x;
-            // let usd_profit =
-            //     get_usd_value(&opportunity[0].token0, profit, &mut evm, &protocol_registry);
+            let profit = calculate_opportunity(&mut opportunity, &mut evm, x) - x;
+            let usd_profit =
+                get_usd_value(&opportunity[0].token0, profit, &mut evm, &protocol_registry);
 
             // if usd_profit >= 0.01 {
             simulate_opportunity(&mut opportunity, &mut evm, x, &protocol_registry);
@@ -177,13 +177,13 @@ fn simulate_opportunity<P: Provider + std::fmt::Debug>(
     for step in &mut *opportunity {
         let amount_out = step.pool.simulate_swap(step.token0.address, amount, evm);
         tracing::info!(
-            "{} ({}) -> {} ({}) on {} ({})",
+            "{} ({}) -> {} ({}) on {}",
             step.token0,
             step.token0.to_float_amount(amount),
             step.token1,
             step.token1.to_float_amount(amount_out),
             step.pool.identifier(),
-            step.pool.address()
+            // step.pool.address()
         );
         amount = amount_out;
     }
