@@ -78,16 +78,20 @@ pub fn find_cycle(graph: &InnerTokenGraph) -> Vec<Vec<Step>> {
 fn spfa(graph: &InnerTokenGraph, source: NodeIndex) -> (Vec<Option<EdgeIndex>>, Vec<usize>) {
     let node_count = graph.node_count();
 
-    let mut distance = vec![f64::INFINITY; node_count];
+    // let mut distance = vec![f64::INFINITY; node_count];
+    let mut distance = vec![0.0; node_count];
     let mut predecessor = vec![None; node_count];
 
-    let mut in_queue = vec![false; node_count];
-    let mut enqueued = vec![0; node_count];
-    let mut queue = VecDeque::from([source]);
+    // let mut in_queue = vec![false; node_count];
+    let mut in_queue = vec![true; node_count];
+    // let mut enqueued = vec![0; node_count];
+    let mut enqueued = vec![1; node_count];
+    // let mut queue = VecDeque::from([source]);
+    let mut queue = VecDeque::from_iter(graph.node_indices());
 
-    distance[source.index()] = 0.0;
-    in_queue[source.index()] = true;
-    enqueued[source.index()] = 1;
+    // distance[source.index()] = 0.0;
+    // in_queue[source.index()] = true;
+    // enqueued[source.index()] = 1;
 
     while let Some(u) = queue.pop_front() {
         in_queue[u.index()] = false;

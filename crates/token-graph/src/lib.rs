@@ -243,9 +243,9 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         // petgraph::algo
         // self.mmbf().await
         // self.bellman_ford().await
-        // let now = Instant::now();
+        let now = Instant::now();
         let a = self.spfa();
-        // tracing::info!("{:?}", now.elapsed());
+        tracing::info!("{:?}", now.elapsed());
         a
 
         // let now = Instant::now();

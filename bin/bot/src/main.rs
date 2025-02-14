@@ -128,7 +128,6 @@ async fn main() -> anyhow::Result<()> {
         }
 
         for mut opportunity in token_graph.find_opportunities().await {
-            // simulate_opportunity(&mut opportunity, &mut evm, 1.0, &protocol_registry);
             let Some(x) = optimize_profit(&mut opportunity, &mut evm) else {
                 continue;
             };
@@ -137,10 +136,10 @@ async fn main() -> anyhow::Result<()> {
             let usd_profit =
                 get_usd_value(&opportunity[0].token0, profit, &mut evm, &protocol_registry);
 
-            // if usd_profit >= 0.01 {
-            simulate_opportunity(&mut opportunity, &mut evm, x, &protocol_registry);
-            println!("");
-            // }
+            if usd_profit >= 0.01 {
+                simulate_opportunity(&mut opportunity, &mut evm, x, &protocol_registry);
+                println!("");
+            }
         }
     }
 
