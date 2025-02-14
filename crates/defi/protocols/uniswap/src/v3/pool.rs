@@ -551,47 +551,48 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
         provider: Arc<P>,
         block_number: BlockNumber,
     ) -> anyhow::Result<bool> {
-        let instance =
-            Self::new_with_provider(self.address, provider.clone(), block_number.into()).await?;
+        let instance = IUniswapV3PoolInstance::new(self.address, &provider);
 
-        if instance.token0 != self.token0 {
-            bail!("token0 address mismatch");
-        }
+        let block: BlockId = block_number.into();
 
-        if instance.token1 != self.token1 {
-            bail!("token1 address mismatch");
-        }
+        let slot0 = instance.slot0().block(block).call().await?._0;
 
-        if instance.fee != self.fee {
-            bail!("fee mismatch");
-        }
-
-        if instance.tick_spacing != self.tick_spacing {
-            bail!("tick_spacing mismatch");
-        }
-
-        if instance.slot0.sqrt_price_x96 != self.slot0.sqrt_price_x96 {
+        if slot0.sqrt_price_x96 != self.slot0.sqrt_price_x96 {
             bail!(
                 "sqrt_price_x96 mismatch (pool {}) on block {block_number}, real {} != {}",
                 self.address,
-                instance.slot0.sqrt_price_x96,
+                slot0.sqrt_price_x96,
                 self.slot0.sqrt_price_x96
             );
         }
 
-        if instance.slot0.tick != self.slot0.tick {
+        if slot0.tick != self.slot0.tick {
             bail!("tick mismatch");
         }
 
-        if instance.slot0.fee_protocol != self.slot0.fee_protocol {
+        if slot0.fee_protocol != self.slot0.fee_protocol {
             bail!("fee_protocol mismatch");
         }
 
-        if instance.fee_growth_global_0_x128 != self.fee_growth_global_0_x128 {
+        if instance
+            .feeGrowthGlobal0X128()
+            .block(block)
+            .call()
+            .await?
+            .feeGrowthGlobal0X128
+            != self.fee_growth_global_0_x128
+        {
             bail!("fee_growth_global_0_x128 mismatch");
         }
 
-        if instance.fee_growth_global_1_x128 != self.fee_growth_global_1_x128 {
+        if instance
+            .feeGrowthGlobal1X128()
+            .block(block)
+            .call()
+            .await?
+            .feeGrowthGlobal1X128
+            != self.fee_growth_global_1_x128
+        {
             bail!("fee_growth_global_1_x128 mismatch");
         }
 

@@ -1,3 +1,9 @@
+// WARNING
+// IT EATS MEMORY
+// FOR SOME REASON
+// DO NOT START UNTIL INVESTIGATION IS CONCLUDED
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 use std::{sync::Arc, time::Instant};
 
 use alloy::{
@@ -22,7 +28,7 @@ fn init_tracing() {
         .init();
 }
 
-const UPDATE_CACHE: bool = true;
+const UPDATE_CACHE: bool = false;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -112,9 +118,6 @@ async fn main() -> anyhow::Result<()> {
 
         if catching_up {
             token_graph.apply_state(state_change.changes, &mut evm);
-            health_monitor
-                .check_health(state_change.block_header.number, token_graph.pools.clone());
-
             continue;
         }
 
