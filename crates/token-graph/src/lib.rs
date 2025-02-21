@@ -64,7 +64,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
     pub async fn new(
         pools: Vec<Box<dyn LiquidityPool<P>>>,
         amount: f64,
-        block: BlockNumber,
+        block: BlockId,
         provider: P,
     ) -> anyhow::Result<Self> {
         let mut graph = InnerTokenGraph::new();
@@ -112,7 +112,6 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         traces: Vec<AddressMap<HashMap<U256, U256>>>,
         provider: P,
         block: BlockId,
-        evm: &mut EVM<P>,
     ) -> AddressSet
     where
         P: Clone,
@@ -142,15 +141,29 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             affected_tokens.insert(token0.address);
             affected_tokens.insert(token1.address);
 
-            self.graph.edge_weight_mut(edge0).unwrap().weight =
-                calculate_edge(pool.as_mut(), &token0, &token1, self.amount, evm)
-                    .pool
-                    .weight;
+            self.graph.edge_weight_mut(edge0).unwrap().weight = calculate_edge(
+                pool.as_mut(),
+                &token0,
+                &token1,
+                self.amount,
+                block,
+                provider.clone(),
+            )
+            .await
+            .pool
+            .weight;
 
-            self.graph.edge_weight_mut(edge1).unwrap().weight =
-                calculate_edge(pool.as_mut(), &token1, &token0, self.amount, evm)
-                    .pool
-                    .weight;
+            self.graph.edge_weight_mut(edge1).unwrap().weight = calculate_edge(
+                pool.as_mut(),
+                &token1,
+                &token0,
+                self.amount,
+                block,
+                provider.clone(),
+            )
+            .await
+            .pool
+            .weight;
         }
 
         affected_tokens
@@ -405,7 +418,7 @@ async fn init_edges<P: Provider + Clone + 'static>(
     amount: f64,
     graph: &mut InnerTokenGraph,
     token_map: &AddressMap<NodeIndex>,
-    block: BlockNumber,
+    block: BlockId,
     provider: P,
 ) -> anyhow::Result<AddressMap<(EdgeIndex, EdgeIndex)>> {
     let mut edge_map = AddressMap::default();
@@ -413,14 +426,30 @@ async fn init_edges<P: Provider + Clone + 'static>(
     let tasks: Vec<_> = pools
         .into_iter()
         .map(|mut pool| {
-            let mut evm = EVM::new_on_block(provider.clone(), block);
+            let provider = provider.clone();
 
-            spawn_blocking(move || {
+            tokio::spawn(async move {
                 let (token0, token1) = pool.tokens();
 
                 (
-                    calculate_edge(pool.as_mut(), &token0, &token1, amount, &mut evm),
-                    calculate_edge(pool.as_mut(), &token1, &token0, amount, &mut evm),
+                    calculate_edge(
+                        pool.as_mut(),
+                        &token0,
+                        &token1,
+                        amount,
+                        block,
+                        provider.clone(),
+                    )
+                    .await,
+                    calculate_edge(
+                        pool.as_mut(),
+                        &token1,
+                        &token0,
+                        amount,
+                        block,
+                        provider.clone(),
+                    )
+                    .await,
                 )
             })
         })
@@ -455,15 +484,18 @@ struct CalculatedEdge {
     pool: WeightedPool,
 }
 
-fn calculate_edge<P: Provider>(
+async fn calculate_edge<P: Provider>(
     pool: &mut dyn LiquidityPool<P>,
     token0: &ERC20,
     token1: &ERC20,
     amount: f64,
-    evm: &mut EVM<P>,
+    block: BlockId,
+    provider: P,
 ) -> CalculatedEdge {
     let amount_in = token0.to_token_amount(amount);
-    let amount_out = pool.simulate_swap(token0.address, amount_in, evm);
+    let amount_out = pool
+        .simulate_swap(token0.address, amount_in, block, provider)
+        .await;
     // let weight = -(f64::from(amount_out) / f64::from(amount_in)).log10();
     let weight = f64::from(amount_out) / f64::from(amount_in);
 

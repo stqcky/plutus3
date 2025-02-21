@@ -1,7 +1,7 @@
 use alloy::providers::Provider;
+use hashbrown::hash_map::Entry;
 use revm::primitives::{Address, B256, U256, map::B256Map};
-
-use crate::EVM;
+use revm_database::BlockId;
 
 #[derive(Debug, Clone)]
 pub struct SmartContractStorage {
@@ -17,26 +17,39 @@ impl SmartContractStorage {
         }
     }
 
-    pub fn get<P: Provider>(&mut self, slot: U256, evm: &mut EVM<P>) -> U256 {
-        *self
-            .storage
-            .entry(slot.into())
-            .or_insert_with(|| evm.storage(self.address, slot))
+    pub async fn get<P: Provider>(
+        &mut self,
+        slot: U256,
+        block: BlockId,
+        provider: P,
+    ) -> Result<U256, alloy::contract::Error> {
+        let entry = self.storage.entry(slot.into());
+        match entry {
+            Entry::Occupied(entry) => Ok(*entry.get()),
+            Entry::Vacant(vacant) => {
+                let value = provider
+                    .get_storage_at(self.address, slot)
+                    .block_id(block)
+                    .await?;
+                Ok(*vacant.insert(value))
+            }
+        }
     }
 
-    pub fn get_consecutive<P: Provider>(
+    pub async fn get_consecutive<P: Provider>(
         &mut self,
         slot: U256,
         amount: usize,
-        evm: &mut EVM<P>,
-    ) -> Vec<U256> {
+        block: BlockId,
+        provider: P,
+    ) -> Result<Vec<U256>, alloy::contract::Error> {
         let mut values = Vec::with_capacity(amount);
 
         for i in 0..amount {
-            values.push(self.get(slot + U256::from(i), evm))
+            values.push(self.get(slot + U256::from(i), block, &provider).await?);
         }
 
-        values
+        Ok(values)
     }
 
     pub fn get_consecutive_cached(&self, slot: U256, amount: usize) -> Option<Vec<U256>> {

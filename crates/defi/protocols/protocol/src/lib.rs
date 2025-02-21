@@ -14,25 +14,12 @@ pub mod registry;
 
 #[async_trait]
 pub trait Protocol<P: Provider>: Send + Sync + DynClone {
-    fn get_pools(
-        &self,
-        token0: Address,
-        token1: Address,
-        evm: &mut EVM<P>,
-    ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, EvmCallError<P>>;
-
     async fn get_pools_with_provider(
         &self,
         token0: Address,
         token1: Address,
         provider: P,
     ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, alloy::contract::Error>;
-
-    fn create_pool(
-        &self,
-        address: Address,
-        evm: &mut EVM<P>,
-    ) -> Result<Box<dyn LiquidityPool<P>>, EvmCallError<P>>;
 
     async fn create_pool_with_provider(
         &self,

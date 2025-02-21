@@ -1,6 +1,7 @@
 use std::{marker::PhantomData, sync::Arc, time::Instant};
 
 use alloy::{
+    eips::BlockId,
     primitives::{Address, BlockNumber, address, map::AddressMap},
     providers::Provider,
 };
@@ -29,7 +30,7 @@ impl TokenValueCache {
         of_token: &ERC20,
         in_token: &ERC20,
         protocols: Arc<Vec<Box<dyn DiscoverableProtocol<P>>>>,
-        block: BlockNumber,
+        block: BlockId,
         provider: P,
     ) -> f64 {
         {
@@ -56,7 +57,7 @@ impl TokenValueCache {
         of_token: &ERC20,
         in_token: &ERC20,
         protocols: Arc<Vec<Box<dyn DiscoverableProtocol<P>>>>,
-        block: BlockNumber,
+        block: BlockId,
         provider: P,
     ) -> f64 {
         if of_token == in_token {
@@ -71,13 +72,21 @@ impl TokenValueCache {
         )
         .await;
 
-        let best_value = pools
-            .into_iter()
-            .map(|mut pool| {
-                let mut evm = EVM::new(provider.clone(), block);
-                pool.simulate_swap(of_token.address, of_token.to_token_amount(1.0), &mut evm)
-            })
-            .max();
+        let mut values = vec![];
+
+        for mut pool in pools {
+            values.push(
+                pool.simulate_swap(
+                    of_token.address,
+                    of_token.to_token_amount(1.0),
+                    block,
+                    provider.clone(),
+                )
+                .await,
+            );
+        }
+
+        let best_value = values.into_iter().max();
 
         in_token.to_float_amount(best_value.unwrap_or_default())
     }
@@ -127,14 +136,12 @@ impl<P: Provider + std::fmt::Debug + 'static + Clone> PoolFilter<P> {
     pub async fn new(
         usd_value: f64,
         provider: P,
-        block: BlockNumber,
+        block: BlockId,
         protocols: Vec<Box<dyn DiscoverableProtocol<P>>>,
     ) -> anyhow::Result<Self> {
-        let mut evm = EVM::new(provider.clone(), block);
-
-        let usdt = ERC20::new(USDT, &mut evm)?;
-        let usdc = ERC20::new(USDC, &mut evm)?;
-        let weth = ERC20::new(WETH, &mut evm)?;
+        let usdt = ERC20::new_with_provider(USDT, provider.clone()).await?;
+        let usdc = ERC20::new_with_provider(USDC, provider.clone()).await?;
+        let weth = ERC20::new_with_provider(WETH, provider.clone()).await?;
 
         let token_value_cache = TokenValueCache::default();
 
@@ -158,7 +165,7 @@ impl<P: Provider + std::fmt::Debug + 'static + Clone> PoolFilter<P> {
         pools: Vec<Box<dyn LiquidityPool<P>>>,
         provider: P,
         protocols: Vec<Box<dyn DiscoverableProtocol<P>>>,
-        block: BlockNumber,
+        block: BlockId,
     ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
     where
         P: Clone,
@@ -185,12 +192,8 @@ impl<P: Provider + std::fmt::Debug + 'static + Clone> PoolFilter<P> {
                 tokio::spawn(async move {
                     let _permit = semaphore.acquire_owned().await.unwrap();
 
-                    let now = Instant::now();
-                    let mut evm = EVM::new(provider.clone(), block);
-
                     let (token0, token1) = pool.tokens();
-                    // tracing::info!("{token0} {token1}");
-                    let Ok((locked0, locked1)) = pool.tokens_locked(&mut evm) else {
+                    let Ok((locked0, locked1)) = pool.tokens_locked(provider.clone()).await else {
                         return None;
                     };
 

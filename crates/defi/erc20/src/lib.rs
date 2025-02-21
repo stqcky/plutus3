@@ -2,7 +2,7 @@ use IERC20::{IERC20Instance, balanceOfCall, decimalsCall, symbolCall};
 use derive_more::Display;
 use plutus_evm::{
     EVM,
-    alloy::{providers::Provider, sol, sol_types::SolCall as _},
+    alloy::{contract, providers::Provider, sol, sol_types::SolCall as _},
     errors::EvmCallError,
     revm::primitives::{Address, U256},
 };
@@ -72,14 +72,15 @@ impl ERC20 {
         f64::from(amount) / 10f64.powi(self.decimals as i32)
     }
 
-    pub fn balance_of<P: Provider>(
+    pub async fn balance_of<P: Provider>(
         &self,
         owner: Address,
-        evm: &mut EVM<P>,
-    ) -> Result<U256, EvmCallError<P>> {
-        Ok(evm
-            .call(self.address, balanceOfCall::new((owner,)))?
-            .output
+        provider: P,
+    ) -> Result<U256, contract::Error> {
+        Ok(IERC20Instance::new(self.address, provider)
+            .balanceOf(owner)
+            .call()
+            .await?
             ._0)
     }
 }

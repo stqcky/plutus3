@@ -9,14 +9,19 @@ use async_trait::async_trait;
 use dyn_clone::DynClone;
 use hashbrown::HashMap;
 use plutus_defi_erc20::ERC20;
-use plutus_evm::{EVM, errors::EvmCallError};
 
 #[async_trait]
 pub trait LiquidityPool<P: Provider>: DynClone + Send + Sync {
     fn identifier(&self) -> &'static str;
     fn address(&self) -> Address;
 
-    fn simulate_swap(&mut self, token: Address, amount: U256, evm: &mut EVM<P>) -> U256;
+    async fn simulate_swap(
+        &mut self,
+        token: Address,
+        amount: U256,
+        block: BlockId,
+        provider: P,
+    ) -> U256;
 
     fn apply_storage_changes(&mut self, changes: HashMap<U256, U256>);
     async fn update_with_provider(
@@ -29,7 +34,7 @@ pub trait LiquidityPool<P: Provider>: DynClone + Send + Sync {
 
     fn token_addresses(&self) -> (Address, Address);
     fn tokens(&self) -> (ERC20, ERC20);
-    fn tokens_locked(&self, evm: &mut EVM<P>) -> Result<(U256, U256), EvmCallError<P>>;
+    async fn tokens_locked(&self, provider: P) -> Result<(U256, U256), alloy::contract::Error>;
 
     async fn verify_health(&self, provider: Arc<P>, block: BlockNumber) -> anyhow::Result<bool>;
 }

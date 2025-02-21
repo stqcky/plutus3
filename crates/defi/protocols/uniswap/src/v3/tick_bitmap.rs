@@ -1,17 +1,18 @@
-use alloy::{primitives::U256, providers::Provider, uint};
+use alloy::{eips::BlockId, primitives::U256, providers::Provider, uint};
 use plutus_evm::{EVM, mapping::SolidityMapping, storage::SmartContractStorage};
 use uniswap_v3_math::{bit_math, error::UniswapV3MathError, tick_bitmap::position};
 
 const U256_1: U256 = uint!(1U256);
 
-pub fn next_initialized_tick_within_one_word<P: Provider, const SLOT: u128>(
+pub async fn next_initialized_tick_within_one_word<P: Provider, const SLOT: u128>(
     tick_bitmap: &mut SolidityMapping<i16, U256, SLOT>,
     tick: i32,
     tick_spacing: i32,
     lte: bool,
-    evm: &mut EVM<P>,
     storage: &mut SmartContractStorage,
-) -> Result<(i32, bool), UniswapV3MathError> {
+    block: BlockId,
+    provider: P,
+) -> anyhow::Result<(i32, bool)> {
     let compressed = if tick < 0 && tick % tick_spacing != 0 {
         (tick / tick_spacing) - 1
     } else {
@@ -23,7 +24,7 @@ pub fn next_initialized_tick_within_one_word<P: Provider, const SLOT: u128>(
 
         let mask = (U256_1 << bit_pos) - U256_1 + (U256_1 << bit_pos);
 
-        let masked = tick_bitmap.get(storage, &word_pos, evm) & mask;
+        let masked = tick_bitmap.get(storage, &word_pos, block, provider).await? & mask;
 
         let initialized = !masked.is_zero();
 
@@ -43,7 +44,7 @@ pub fn next_initialized_tick_within_one_word<P: Provider, const SLOT: u128>(
 
         let mask = !((U256_1 << bit_pos) - U256_1);
 
-        let masked = tick_bitmap.get(storage, &word_pos, evm) & mask;
+        let masked = tick_bitmap.get(storage, &word_pos, block, provider).await? & mask;
 
         let initialized = !masked.is_zero();
 

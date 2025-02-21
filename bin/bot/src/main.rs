@@ -2,8 +2,9 @@ use rayon::prelude::*;
 use std::{sync::Arc, time::Instant};
 
 use alloy::{
+    eips::BlockId,
     primitives::{Address, U256, address},
-    providers::{Provider, ProviderBuilder},
+    providers::{Provider, ProviderBuilder, RpcWithBlock},
     rpc::client::ClientBuilder,
 };
 use dotenvy_macro::dotenv;
@@ -97,7 +98,8 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("creating token graph");
     let now = Instant::now();
-    let mut token_graph = TokenGraph::new(pools, 0.001, block_number, provider.clone()).await?;
+    let mut token_graph =
+        TokenGraph::new(pools, 0.001, block_number.into(), provider.clone()).await?;
     tracing::info!("token graph created in {:?}", now.elapsed());
 
     let health_monitor = HealthMonitor::new(provider.clone());
@@ -120,29 +122,17 @@ async fn main() -> anyhow::Result<()> {
         //     if catching_up { ", catching up" } else { "" }
         // );
 
-        let block = state_change.block_header.number;
-
-        let mut evm = EVM::new_on_block(provider.clone(), block);
+        let block: BlockId = state_change.block_header.number.into();
 
         if catching_up {
             token_graph
-                .apply_state(
-                    state_change.changes,
-                    provider.clone(),
-                    block.into(),
-                    &mut evm,
-                )
+                .apply_state(state_change.changes, provider.clone(), block.into())
                 .await;
             continue;
         }
 
         let affected_tokens = token_graph
-            .apply_state(
-                state_change.changes,
-                provider.clone(),
-                block.into(),
-                &mut evm,
-            )
+            .apply_state(state_change.changes, provider.clone(), block.into())
             .await;
 
         if last_health_check.elapsed().as_secs() >= 2 {
@@ -158,7 +148,7 @@ async fn main() -> anyhow::Result<()> {
         for mut opportunity in opportunities {
             // simulate_opportunity(&mut opportunity, &mut evm, 1.0, &protocol_registry);
 
-            let Some(x) = optimize_profit(&mut opportunity, &mut evm) else {
+            let Some(x) = optimize_profit(&mut opportunity, block, provider.clone()).await else {
                 tracing::error!("failed to optimize profit");
                 continue;
             };
@@ -166,7 +156,8 @@ async fn main() -> anyhow::Result<()> {
             // tracing::info!("optimized x: {x}");
 
             let now = Instant::now();
-            let profit = calculate_opportunity(&mut opportunity, &mut evm, x) - x;
+            let profit =
+                calculate_opportunity(&mut opportunity, x, block, provider.clone()).await - x;
             // tracing::info!("calculate opportunity: {:?}", now.elapsed());
 
             if profit <= 0.0 {
@@ -175,13 +166,26 @@ async fn main() -> anyhow::Result<()> {
             }
 
             let now = Instant::now();
-            let usd_profit =
-                get_usd_value(&opportunity[0].token0, profit, &mut evm, &protocol_registry);
+            let usd_profit = get_usd_value(
+                &opportunity[0].token0,
+                profit,
+                &protocol_registry,
+                block,
+                provider.clone(),
+            )
+            .await;
             // tracing::info!("get usd value: {:?}", now.elapsed());
 
             if usd_profit >= 0.01 {
                 // tracing::info!("optimized amount in:");
-                simulate_opportunity(&mut opportunity, &mut evm, x, &protocol_registry);
+                simulate_opportunity(
+                    &mut opportunity,
+                    x,
+                    &protocol_registry,
+                    block,
+                    provider.clone(),
+                )
+                .await;
                 println!("");
             } else {
                 tracing::error!("usd profit < 0.01 ({usd_profit})");
@@ -211,48 +215,64 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn calculate_roi<P: Provider>(opportunity: &mut [Step<P>], evm: &mut EVM<P>) -> f64 {
+async fn calculate_roi<P: Provider + Clone>(
+    opportunity: &mut [Step<P>],
+    block: BlockId,
+    provider: P,
+) -> f64 {
     let token0 = opportunity[0].token0.clone();
 
     let start_amount = token0.to_token_amount(1.0);
     let mut amount = start_amount;
 
     for step in opportunity {
-        amount = step.pool.simulate_swap(step.token0.address, amount, evm);
+        amount = step
+            .pool
+            .simulate_swap(step.token0.address, amount, block, provider.clone())
+            .await;
     }
 
     f64::from(amount) / f64::from(start_amount)
 }
 
-fn calculate_opportunity<P: Provider>(
+async fn calculate_opportunity<P: Provider + Clone>(
     opportunity: &mut [Step<P>],
-    evm: &mut EVM<P>,
     amount: f64,
+    block: BlockId,
+    provider: P,
 ) -> f64 {
     let token0 = opportunity[0].token0.clone();
 
     let mut amount = token0.to_token_amount(amount);
 
     for step in opportunity {
-        let amount_out = step.pool.simulate_swap(step.token0.address, amount, evm);
+        let amount_out = step
+            .pool
+            .simulate_swap(step.token0.address, amount, block, provider.clone())
+            .await;
         amount = amount_out;
     }
 
     token0.to_float_amount(amount)
 }
 
-fn simulate_opportunity<P: Provider + std::fmt::Debug>(
+async fn simulate_opportunity<P: Provider + std::fmt::Debug + Clone>(
     opportunity: &mut [Step<P>],
-    evm: &mut EVM<P>,
     start_amount: f64,
     registry: &ProtocolRegistry<P>,
+    block: BlockId,
+    provider: P,
 ) -> U256 {
     tracing::info!("opportunity:");
     let token_start_amount = opportunity[0].token0.to_token_amount(start_amount);
     let mut amount = token_start_amount;
 
     for step in &mut *opportunity {
-        let amount_out = step.pool.simulate_swap(step.token0.address, amount, evm);
+        let amount_out = step
+            .pool
+            .simulate_swap(step.token0.address, amount, block, provider.clone())
+            .await;
+
         tracing::info!(
             "{} ({}) -> {} ({}) on {}",
             step.token0,
@@ -270,7 +290,14 @@ fn simulate_opportunity<P: Provider + std::fmt::Debug>(
             .token0
             .to_float_amount(amount - token_start_amount);
 
-        let usd_profit = get_usd_value(&opportunity[0].token0, profit, evm, registry);
+        let usd_profit = get_usd_value(
+            &opportunity[0].token0,
+            profit,
+            registry,
+            block,
+            provider.clone(),
+        )
+        .await;
 
         tracing::info!("profit: {profit} (${usd_profit})");
     } else {
@@ -302,8 +329,13 @@ fn simulate_opportunity<P: Provider + std::fmt::Debug>(
 //     Some((left + right) / 2.0)
 // }
 
-fn optimize_profit<P: Provider>(opportunity: &mut [Step<P>], evm: &mut EVM<P>) -> Option<f64> {
-    let mut get_profit = |x| calculate_opportunity(opportunity, evm, x) - x;
+async fn optimize_profit<P: Provider + Clone>(
+    opportunity: &mut [Step<P>],
+    block: BlockId,
+    provider: P,
+) -> Option<f64> {
+    let mut get_profit =
+        async |x| calculate_opportunity(opportunity, x, block, provider.clone()).await - x;
 
     let mut lower_bound = 0.0;
     let mut upper_bound = 1000.0;
@@ -313,8 +345,8 @@ fn optimize_profit<P: Provider>(opportunity: &mut [Step<P>], evm: &mut EVM<P>) -
     for _ in 0..max_iter {
         let middle = (lower_bound + upper_bound) / 2.0;
 
-        let lower_profit = get_profit(lower_bound + (middle - lower_bound) / 2.0);
-        let upper_profit = get_profit(middle + (upper_bound - middle) / 2.0);
+        let lower_profit = get_profit(lower_bound + (middle - lower_bound) / 2.0).await;
+        let upper_profit = get_profit(middle + (upper_bound - middle) / 2.0).await;
 
         if lower_profit > upper_profit {
             upper_bound = middle;
@@ -330,33 +362,43 @@ pub const USDT: Address = address!("Fd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9");
 pub const WETH: Address = address!("82aF49447D8a07e3bd95BD0d56f35241523fBab1");
 pub const USDC: Address = address!("af88d065e77c8cc2239327c5edb3a432268e5831");
 
-fn get_usd_value<P: Provider + std::fmt::Debug>(
+async fn get_usd_value<P: Provider + std::fmt::Debug + Clone>(
     token: &ERC20,
     amount: f64,
-    evm: &mut EVM<P>,
     registry: &ProtocolRegistry<P>,
+    block: BlockId,
+    provider: P,
 ) -> f64 {
-    let usdt = ERC20::new(USDT, evm).unwrap();
-    let usdc = ERC20::new(USDC, evm).unwrap();
-    let weth = ERC20::new(WETH, evm).unwrap();
+    let usdt = ERC20::new_with_provider(USDT, provider.clone())
+        .await
+        .unwrap();
+    let usdc = ERC20::new_with_provider(USDC, provider.clone())
+        .await
+        .unwrap();
+    let weth = ERC20::new_with_provider(WETH, provider.clone())
+        .await
+        .unwrap();
 
     let token_amount = token.to_token_amount(amount);
 
     let usdt_value = usdt.to_float_amount(
         registry
-            .get_token_value(token.address, USDT, token_amount, evm)
+            .get_token_value(token.address, USDT, token_amount, block)
+            .await
             .unwrap(),
     );
 
     let usdc_value = usdc.to_float_amount(
         registry
-            .get_token_value(token.address, usdc.address, token_amount, evm)
+            .get_token_value(token.address, usdc.address, token_amount, block)
+            .await
             .unwrap(),
     );
 
     let weth_value = weth.to_float_amount(
         registry
-            .get_token_value(token.address, weth.address, token_amount, evm)
+            .get_token_value(token.address, weth.address, token_amount, block)
+            .await
             .unwrap(),
     ) * 2723.39;
 

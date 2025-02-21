@@ -49,7 +49,13 @@ impl DerefMut for PancakeSwapV2Pool {
 
 #[async_trait]
 impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV2Pool {
-    fn simulate_swap(&mut self, token: Address, amount: U256, _evm: &mut EVM<P>) -> U256 {
+    async fn simulate_swap(
+        &mut self,
+        token: Address,
+        amount: U256,
+        _block: BlockId,
+        _provider: P,
+    ) -> U256 {
         let (reserve_in, reserve_out) = if token == self.token0.address {
             (U256::from(self.reserves.0), U256::from(self.reserves.1))
         } else {
@@ -79,8 +85,8 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV2Pool {
         <UniswapV2Pool as LiquidityPool<P>>::token_addresses(&self.0)
     }
 
-    fn tokens_locked(&self, _evm: &mut EVM<P>) -> Result<(U256, U256), EvmCallError<P>> {
-        <UniswapV2Pool as LiquidityPool<P>>::tokens_locked(&self.0, _evm)
+    async fn tokens_locked(&self, _provider: P) -> Result<(U256, U256), alloy::contract::Error> {
+        <UniswapV2Pool as LiquidityPool<P>>::tokens_locked(&self.0, _provider).await
     }
 
     fn identifier(&self) -> &'static str {
@@ -141,20 +147,23 @@ mod tests {
             ),
         );
 
-        let block_number = provider.get_block_number().await?;
-        let mut evm = EVM::new(provider.clone(), block_number);
+        let block: BlockId = provider.get_block_number().await?.into();
 
         let router = PancakeSwapV2Router::new(provider.clone());
 
         for address in POOLS {
-            let mut pool = PancakeSwapV2Pool::new(*address, &mut evm)?;
+            let mut pool =
+                PancakeSwapV2Pool::new_with_provider(*address, provider.clone(), block).await?;
 
             for amount in 1..100 {
-                let token0_out = pool.simulate_swap(
-                    pool.token0.address,
-                    pool.token0.to_token_amount(amount as f64),
-                    &mut evm,
-                );
+                let token0_out = pool
+                    .simulate_swap(
+                        pool.token0.address,
+                        pool.token0.to_token_amount(amount as f64),
+                        block,
+                        provider.clone(),
+                    )
+                    .await;
 
                 let quoted_token0_out = router
                     .get_amount_out(
@@ -171,11 +180,14 @@ mod tests {
                     );
                 }
 
-                let token1_out = pool.simulate_swap(
-                    pool.token1.address,
-                    pool.token1.to_token_amount(amount as f64),
-                    &mut evm,
-                );
+                let token1_out = pool
+                    .simulate_swap(
+                        pool.token1.address,
+                        pool.token1.to_token_amount(amount as f64),
+                        block,
+                        provider.clone(),
+                    )
+                    .await;
 
                 let quoted_token1_out = router
                     .get_amount_out(

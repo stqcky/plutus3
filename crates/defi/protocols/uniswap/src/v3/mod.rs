@@ -26,25 +26,6 @@ pub struct UniswapV3Protocol {
 
 #[async_trait]
 impl<P: Provider + 'static> Protocol<P> for UniswapV3Protocol {
-    fn get_pools(
-        &self,
-        token0: Address,
-        token1: Address,
-        evm: &mut EVM<P>,
-    ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, EvmCallError<P>> {
-        let mut pools: Vec<Box<dyn LiquidityPool<P>>> = vec![];
-
-        for fee in FeeAmount::iter() {
-            let Some(pool) = self.factory.get_pool(token0, token1, fee, evm)? else {
-                continue;
-            };
-
-            pools.push(Box::new(pool));
-        }
-
-        Ok(pools)
-    }
-
     async fn get_pools_with_provider(
         &self,
         token0: Address,
@@ -66,14 +47,6 @@ impl<P: Provider + 'static> Protocol<P> for UniswapV3Protocol {
         }
 
         Ok(pools)
-    }
-
-    fn create_pool(
-        &self,
-        address: Address,
-        evm: &mut EVM<P>,
-    ) -> Result<Box<dyn LiquidityPool<P>>, EvmCallError<P>> {
-        Ok(Box::new(UniswapV3Pool::new(address, evm)?) as Box<dyn LiquidityPool<P>>)
     }
 
     async fn create_pool_with_provider(

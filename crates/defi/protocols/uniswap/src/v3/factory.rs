@@ -46,28 +46,6 @@ impl UniswapV3Factory {
         Self { address }
     }
 
-    pub fn get_pool<P: Provider>(
-        &self,
-        token0: Address,
-        token1: Address,
-        fee: FeeAmount,
-        evm: &mut EVM<P>,
-    ) -> Result<Option<UniswapV3Pool>, EvmCallError<P>> {
-        let address = evm
-            .call(
-                self.address,
-                getPoolCall::new((token0, token1, U24::from(fee as u32))),
-            )?
-            .output
-            .pool;
-
-        if address.is_zero() {
-            Ok(None)
-        } else {
-            Ok(Some(UniswapV3Pool::new(address, evm)?))
-        }
-    }
-
     pub async fn get_pool_with_provider<P: Provider>(
         &self,
         token0: Address,

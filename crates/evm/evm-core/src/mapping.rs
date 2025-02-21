@@ -5,6 +5,7 @@ use alloy::{
     providers::Provider,
 };
 use revm::primitives::{I256, U256};
+use revm_database::BlockId;
 
 use crate::{EVM, storage::SmartContractStorage};
 
@@ -26,21 +27,23 @@ where
         }
     }
 
-    pub fn get<P: Provider>(
+    pub async fn get<P: Provider>(
         &mut self,
         storage: &mut SmartContractStorage,
         k: &K,
-        evm: &mut EVM<P>,
-    ) -> V {
+        block: BlockId,
+        provider: P,
+    ) -> Result<V, alloy::contract::Error> {
         let slot = self.get_value_storage_slot(k);
 
         let bytes: Vec<_> = storage
-            .get_consecutive(slot, VALUE_SLOTS, evm)
+            .get_consecutive(slot, VALUE_SLOTS, block, provider)
+            .await?
             .into_iter()
             .flat_map(|value| value.to_le_bytes::<{ U256::BYTES }>())
             .collect();
 
-        V::decode(bytes)
+        Ok(V::decode(bytes))
     }
 
     fn get_value_storage_slot(&self, k: &K) -> U256 {

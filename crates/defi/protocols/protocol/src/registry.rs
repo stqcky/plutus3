@@ -6,7 +6,7 @@ use alloy::{
     providers::Provider,
 };
 use anyhow::Context;
-use futures::future;
+use futures::{StreamExt, future, stream::FuturesUnordered};
 use hashbrown::HashMap;
 use plutus_defi_erc20::ERC20;
 use plutus_evm::{EVM, errors::EvmCallError};
@@ -23,7 +23,7 @@ pub struct ProtocolRegistry<P> {
     protocols: HashMap<String, Box<dyn DiscoverableProtocol<P>>>,
 }
 
-impl<P: Provider> ProtocolRegistry<P> {
+impl<P: Provider + Clone> ProtocolRegistry<P> {
     pub async fn new(provider: P) -> anyhow::Result<Self> {
         Ok(Self {
             chain_id: provider
@@ -189,7 +189,7 @@ impl<P: Provider> ProtocolRegistry<P> {
         &self,
         storage: &Storage,
         usd_value: f64,
-        block: BlockNumber,
+        block: BlockId,
     ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
     where
         P: std::fmt::Debug + 'static + Clone,
@@ -259,34 +259,41 @@ impl<P: Provider> ProtocolRegistry<P> {
         self.protocols.keys().cloned().collect()
     }
 
-    fn get_pools(
+    async fn get_pools(
         &self,
         token0: Address,
         token1: Address,
-        evm: &mut EVM<P>,
-    ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, EvmCallError<P>> {
+    ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, alloy::contract::Error> {
         let mut pools = vec![];
 
         for protocol in self.protocols.values() {
-            pools.extend(protocol.get_pools(token0, token1, evm)?);
+            pools.extend(
+                protocol
+                    .get_pools_with_provider(token0, token1, self.provider.clone())
+                    .await?,
+            );
         }
 
         Ok(pools)
     }
 
-    pub fn get_token_value(
+    pub async fn get_token_value(
         &self,
         of_token: Address,
         in_token: Address,
         amount: U256,
-        evm: &mut EVM<P>,
-    ) -> Result<U256, EvmCallError<P>> {
-        let pools = self.get_pools(of_token, in_token, evm)?;
+        block: BlockId,
+    ) -> Result<U256, alloy::contract::Error> {
+        let pools = self.get_pools(of_token, in_token).await?;
 
-        let values: Vec<_> = pools
-            .into_iter()
-            .map(|mut pool| pool.simulate_swap(of_token, amount, evm))
-            .collect();
+        let mut values = vec![];
+
+        for mut pool in pools {
+            values.push(
+                pool.simulate_swap(of_token, amount, block, self.provider.clone())
+                    .await,
+            );
+        }
 
         Ok(values.into_iter().max().unwrap_or(U256::from(0)))
     }
