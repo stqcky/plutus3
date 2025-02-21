@@ -223,9 +223,7 @@ impl<P: Provider + std::fmt::Debug + 'static + Clone> PoolFilter<P> {
                         let total_value0 = value0 * locked0;
                         let total_value1 = value1 * locked1;
 
-                        let total_value = total_value0 + total_value1;
-
-                        if total_value >= token.value {
+                        if total_value0 >= token.value && total_value1 >= token.value {
                             return Some(pool);
                         }
                     }

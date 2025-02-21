@@ -1,5 +1,5 @@
 use alloy::providers::Provider;
-use revm::primitives::{Address, U256, map::B256Map};
+use revm::primitives::{Address, B256, U256, map::B256Map};
 
 use crate::EVM;
 
@@ -39,8 +39,23 @@ impl SmartContractStorage {
         values
     }
 
+    pub fn get_consecutive_cached(&self, slot: U256, amount: usize) -> Option<Vec<U256>> {
+        let mut values = Vec::with_capacity(amount);
+
+        for i in 0..amount {
+            let key: B256 = (slot + U256::from(i)).into();
+            values.push(*self.storage.get(&key)?);
+        }
+
+        Some(values)
+    }
+
     pub fn insert(&mut self, slot: U256, value: U256) {
         self.storage.insert(slot.into(), value);
+    }
+
+    pub fn clear(&mut self) {
+        self.storage.clear();
     }
 }
 

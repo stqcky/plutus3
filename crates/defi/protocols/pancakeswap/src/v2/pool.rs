@@ -102,6 +102,15 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV2Pool {
     ) -> anyhow::Result<bool> {
         <UniswapV2Pool as LiquidityPool<P>>::verify_health(&self.0, provider, block_number).await
     }
+
+    async fn update_with_provider(
+        &mut self,
+        provider: P,
+        block: BlockId,
+    ) -> Result<(), alloy::contract::Error> {
+        <UniswapV2Pool as LiquidityPool<P>>::update_with_provider(&mut self.0, provider, block)
+            .await
+    }
 }
 
 #[cfg(test)]

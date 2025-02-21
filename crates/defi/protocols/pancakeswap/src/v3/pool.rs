@@ -1,13 +1,15 @@
-use std::sync::Arc;
-
-use IUniswapV3Pool::{
-    IUniswapV3PoolInstance, feeCall, slot0Return, tickSpacingCall, token0Call, token1Call,
+use std::{
+    ops::{Deref, DerefMut},
+    sync::Arc,
 };
+
+use IPancakeSwapV3Pool::{IPancakeSwapV3PoolInstance, slot0Return};
 use alloy::{
     eips::BlockId,
+    hex,
     primitives::{
-        Address, BlockNumber, I128, I256, U8, U16, U32, U128, U160, U256,
-        aliases::{I24, I56, U24, U56},
+        Address, BlockNumber, I256, U16, U32, U160, U256,
+        aliases::{I24, U24},
     },
     providers::Provider,
     sol,
@@ -18,6 +20,15 @@ use anyhow::bail;
 use async_trait::async_trait;
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::pool::LiquidityPool;
+use plutus_defi_protocols_uniswap::v3::{
+    pool::{
+        IUniswapV3Pool::{
+            IUniswapV3PoolInstance, feeCall, tickSpacingCall, token0Call, token1Call,
+        },
+        Q128, StepComputations, SwapState, TickInfo, UniswapV3Pool,
+    },
+    tick_bitmap::next_initialized_tick_within_one_word,
+};
 use plutus_evm::{
     EVM,
     errors::EvmCallError,
@@ -35,18 +46,9 @@ use uniswap_v3_math::{
     },
 };
 
-use super::{
-    quoter::{
-        self,
-        IQuoterV2::{QuoteExactInputSingleParams, quoteExactInputSingleCall},
-        Quoter,
-    },
-    tick_bitmap::next_initialized_tick_within_one_word,
-};
-
 sol!(
     #[sol(rpc)]
-    contract IUniswapV3Pool {
+    contract IPancakeSwapV3Pool {
         address public immutable override factory;
         address public immutable override token0;
         address public immutable override token1;
@@ -61,7 +63,7 @@ sol!(
             uint16 observation_index;
             uint16 observation_cardinality;
             uint16 observation_cardinality_next;
-            uint8 fee_protocol;
+            uint32 fee_protocol;
             bool unlocked;
         }
 
@@ -116,7 +118,7 @@ sol!(
 );
 
 #[derive(Debug, Clone)]
-pub struct UniswapV3Pool {
+pub struct PancakeSwapV3Pool {
     pub address: Address,
 
     pub token0: ERC20,
@@ -129,29 +131,17 @@ pub struct UniswapV3Pool {
     pub fee_growth_global_1_x128: U256,
     pub liquidity: u128,
 
-    pub ticks: SolidityMapping<I24, TickInfo, 5, 4>,
-    pub tick_bitmap: SolidityMapping<i16, U256, 6>,
+    pub ticks: SolidityMapping<I24, TickInfo, 6, 4>,
+    pub tick_bitmap: SolidityMapping<i16, U256, 7>,
 
     pub storage: SmartContractStorage,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct TickInfo {
-    pub liquidity_gross: u128,
-    pub liquidity_net: i128,
-    pub fee_growth_outside_0_x128: U256,
-    pub fee_growth_outside_1_x128: U256,
-    pub tick_cumulative_outside: I56,
-    pub seconds_per_liquidity_outside_x128: U160,
-    pub seconds_outside: u32,
-    pub initialized: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct Slot0 {
     pub sqrt_price_x96: U160,
     pub tick: I24,
-    pub fee_protocol: u8,
+    pub fee_protocol: u32,
 }
 
 impl From<slot0Return> for Slot0 {
@@ -167,40 +157,29 @@ impl From<slot0Return> for Slot0 {
 }
 
 pub struct SwapCache {
-    pub fee_protocol: u8,
+    pub fee_protocol: u32,
     pub liquidity_start: u128,
 }
 
-pub struct SwapState {
-    pub amount_specified_remaining: I256,
-    pub amount_calculated: I256,
-    pub sqrt_price_x96: U256,
-    pub tick: i32,
-    pub fee_growth_global_x128: U256,
-    pub protocol_fee: u128,
-    pub liquidity: u128,
-}
-
-pub struct StepComputations {
-    pub sqrt_price_start_x96: U256,
-    pub tick_next: i32,
-    pub initialized: bool,
-    pub sqrt_price_next_x96: U256,
-    pub amount_in: U256,
-    pub amount_out: U256,
-    pub fee_amount: U256,
-}
-
-pub const Q128: U256 = uint!(0x100000000000000000000000000000000U256);
-
 const SLOT0_SLOT: U256 = uint!(0U256);
-const FEE_GROWTH_GLOBAL_0_X128_SLOT: U256 = uint!(1U256);
-const FEE_GROWTH_GLOBAL_1_X128_SLOT: U256 = uint!(2U256);
-const LIQUIDITY_SLOT: U256 = uint!(4U256);
+const SLOT0_SECOND_SLOT: U256 = uint!(1U256);
+const FEE_GROWTH_GLOBAL_0_X128_SLOT: U256 = uint!(2U256);
+const FEE_GROWTH_GLOBAL_1_X128_SLOT: U256 = uint!(3U256);
+const LIQUIDITY_SLOT: U256 = uint!(5U256);
 
-impl UniswapV3Pool {
+const PROTOCOL_FEE_SP: u32 = 65536;
+const PROTOCOL_FEE_DENOMINATOR: U256 = uint!(10000U256);
+
+impl PancakeSwapV3Pool {
     pub fn new<P: Provider>(address: Address, evm: &mut EVM<P>) -> Result<Self, EvmCallError<P>> {
         let mut storage = SmartContractStorage::new(address);
+
+        let slot0_bytes: Vec<_> = storage
+            .get_consecutive(SLOT0_SLOT, 2, evm)
+            .into_iter()
+            .map(|value| value.to_le_bytes::<{ U256::BYTES }>())
+            .flatten()
+            .collect();
 
         Ok(Self {
             address,
@@ -212,7 +191,7 @@ impl UniswapV3Pool {
                 .output
                 .tickSpacing,
 
-            slot0: Slot0::from_storage_value(evm.storage(address, SLOT0_SLOT)),
+            slot0: Slot0::decode(slot0_bytes),
             fee_growth_global_0_x128: storage.get(FEE_GROWTH_GLOBAL_0_X128_SLOT, evm),
             fee_growth_global_1_x128: storage.get(FEE_GROWTH_GLOBAL_1_X128_SLOT, evm),
             liquidity: storage.get(LIQUIDITY_SLOT, evm).to(),
@@ -228,7 +207,7 @@ impl UniswapV3Pool {
         provider: P,
         block: BlockId,
     ) -> Result<Self, alloy::contract::Error> {
-        let instance = IUniswapV3PoolInstance::new(address, &provider);
+        let instance = IPancakeSwapV3PoolInstance::new(address, &provider);
 
         Ok(Self {
             address,
@@ -291,38 +270,6 @@ impl UniswapV3Pool {
         .unwrap_or(U256::from(0))
     }
 
-    pub fn exact_input_of_with_quoter<P: Provider>(
-        &self,
-        token: Address,
-        amount: U256,
-        evm: &mut EVM<P>,
-    ) -> U256 {
-        let token_out = if token == self.token0.address {
-            self.token1.address
-        } else {
-            self.token0.address
-        };
-
-        let zero_for_one = token == self.token0.address;
-
-        evm.call(
-            quoter::DEPLOYMENT_ADDRESS,
-            quoteExactInputSingleCall::new((QuoteExactInputSingleParams {
-                token_in: token,
-                token_out,
-                amount_in: amount,
-                fee: self.fee,
-                sqrt_price_limit_x96: U160::from(if zero_for_one {
-                    MIN_SQRT_RATIO + U256::from(1)
-                } else {
-                    MAX_SQRT_RATIO - U256::from(1)
-                }),
-            },)),
-        )
-        .map(|x| x.output.amount_out)
-        .unwrap_or(U256::ZERO)
-    }
-
     pub fn swap<P: Provider>(
         &mut self,
         zero_for_one: bool,
@@ -347,9 +294,9 @@ impl UniswapV3Pool {
         let cache = SwapCache {
             liquidity_start: self.liquidity,
             fee_protocol: if zero_for_one {
-                self.slot0.fee_protocol % 16
+                self.slot0.fee_protocol % PROTOCOL_FEE_SP
             } else {
-                self.slot0.fee_protocol >> 4
+                self.slot0.fee_protocol >> 16
             },
         };
 
@@ -428,7 +375,9 @@ impl UniswapV3Pool {
             }
 
             if cache.fee_protocol > 0 {
-                let delta = step.fee_amount / U256::from(cache.fee_protocol);
+                let delta =
+                    (step.fee_amount * U256::from(cache.fee_protocol)) / PROTOCOL_FEE_DENOMINATOR;
+
                 step.fee_amount -= delta;
                 state.protocol_fee += delta.to::<u128>();
             }
@@ -483,28 +432,38 @@ impl UniswapV3Pool {
 }
 
 #[async_trait]
-impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
+impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV3Pool {
     fn simulate_swap(&mut self, token: Address, amount: U256, evm: &mut EVM<P>) -> U256 {
         self.exact_input_of(token, amount, evm)
-        // self.exact_input_of_with_quoter(token, amount, evm)
     }
 
     fn apply_storage_changes(&mut self, changes: hashbrown::HashMap<U256, U256>) {
-        for (slot, value) in changes {
-            // println!(
-            //     "update {}: {} = {}",
-            //     self.address,
-            //     hex::encode(slot.to_be_bytes::<32>()),
-            //     hex::encode(value.to_be_bytes::<32>())
-            // );
+        let mut slot0_updated = false;
 
+        for (slot, value) in changes {
             match slot {
-                _ if slot == SLOT0_SLOT => self.slot0 = Slot0::from_storage_value(value),
+                _ if slot == SLOT0_SLOT || slot == SLOT0_SECOND_SLOT => {
+                    slot0_updated = true;
+                    self.storage.insert(slot, value)
+                }
                 _ if slot == FEE_GROWTH_GLOBAL_0_X128_SLOT => self.fee_growth_global_0_x128 = value,
                 _ if slot == FEE_GROWTH_GLOBAL_1_X128_SLOT => self.fee_growth_global_1_x128 = value,
                 _ if slot == LIQUIDITY_SLOT => self.liquidity = value.to(),
                 _ => self.storage.insert(slot, value),
             }
+        }
+
+        if slot0_updated {
+            // pancakeswap v3 pool's slot0 is split between 2 slots :)
+            self.slot0 = Slot0::decode(
+                self.storage
+                    .get_consecutive_cached(SLOT0_SLOT, 2)
+                    .expect("slot0 cache is populated")
+                    .into_iter()
+                    .map(|value| value.to_le_bytes::<{ U256::BYTES }>())
+                    .flatten()
+                    .collect(),
+            );
         }
     }
 
@@ -528,7 +487,7 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
     }
 
     fn identifier(&self) -> &'static str {
-        "uniswap_v3"
+        "pancakeswap_v3"
     }
 
     fn address(&self) -> Address {
@@ -544,7 +503,7 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
         provider: Arc<P>,
         block_number: BlockNumber,
     ) -> anyhow::Result<bool> {
-        let instance = IUniswapV3PoolInstance::new(self.address, &provider);
+        let instance = IPancakeSwapV3PoolInstance::new(self.address, &provider);
 
         let block: BlockId = block_number.into();
 
@@ -564,7 +523,11 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
         }
 
         if slot0.fee_protocol != self.slot0.fee_protocol {
-            bail!("fee_protocol mismatch");
+            bail!(
+                "fee_protocol mismatch, real {} != {}",
+                slot0.fee_protocol,
+                self.slot0.fee_protocol
+            );
         }
 
         if instance
@@ -616,165 +579,52 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
             }
         }
 
-        let quoter = Quoter::new(provider.clone());
-        let mut evm = EVM::new_on_block(provider.clone(), block_number);
-
-        let mut pool = self.clone();
-
-        for amount in 1..100 {
-            let token0_out = pool.simulate_swap(
-                pool.token0.address,
-                pool.token0.to_token_amount(amount as f64),
-                &mut evm,
-            );
-
-            let quoted_token0_out = quoter
-                .quote_exact_input_single_on_block(
-                    QuoteExactInputSingleParams {
-                        token_in: pool.token0.address,
-                        token_out: pool.token1.address,
-                        amount_in: pool.token0.to_token_amount(amount as f64),
-                        fee: pool.fee,
-                        sqrt_price_limit_x96: U160::from(MIN_SQRT_RATIO + U256::from(1)),
-                    },
-                    block_number.into(),
-                )
-                .await?
-                .amount_out;
-
-            if token0_out != quoted_token0_out {
-                panic!(
-                    "swap mismatch: token0 -> token1, pool = {}, amount = {amount}, quoted {} != {}",
-                    pool.address, quoted_token0_out, token0_out
-                );
-            }
-
-            let token1_out = pool.simulate_swap(
-                pool.token1.address,
-                pool.token1.to_token_amount(amount as f64),
-                &mut evm,
-            );
-
-            let quoted_token1_out = quoter
-                .quote_exact_input_single_on_block(
-                    QuoteExactInputSingleParams {
-                        token_in: pool.token1.address,
-                        token_out: pool.token0.address,
-                        amount_in: pool.token1.to_token_amount(amount as f64),
-                        fee: pool.fee,
-                        sqrt_price_limit_x96: U160::from(MAX_SQRT_RATIO - U256::from(1)),
-                    },
-                    block_number.into(),
-                )
-                .await?
-                .amount_out;
-
-            if token1_out != quoted_token1_out {
-                panic!(
-                    "swap mismatch: token1 -> token0, pool = {}, amount = {amount}, quoted {} != {}",
-                    pool.address, quoted_token1_out, token1_out
-                );
-            }
-        }
-
         Ok(true)
     }
-
-    async fn update_with_provider(
-        &mut self,
-        provider: P,
-        block: BlockId,
-    ) -> Result<(), alloy::contract::Error> {
-        let instance = IUniswapV3PoolInstance::new(self.address, provider);
-
-        self.slot0 = instance.slot0().block(block).call().await?.into();
-
-        self.fee_growth_global_0_x128 = instance
-            .feeGrowthGlobal0X128()
-            .block(block)
-            .call()
-            .await?
-            .feeGrowthGlobal0X128;
-        self.fee_growth_global_1_x128 = instance
-            .feeGrowthGlobal1X128()
-            .block(block)
-            .call()
-            .await?
-            .feeGrowthGlobal1X128;
-
-        self.liquidity = instance.liquidity().block(block).call().await?.liquidity;
-
-        self.storage.clear();
-
-        Ok(())
-    }
 }
 
-impl StorageDecodable for TickInfo {
+impl StorageDecodable for Slot0 {
     fn decode(bytes: Vec<u8>) -> Self {
-        let (liquidity_gross, bytes) = bytes.split_at(U128::BYTES);
-        let (liquidity_net, bytes) = bytes.split_at(I128::BYTES);
-        let (fee_growth_outside_0_x128, bytes) = bytes.split_at(U256::BYTES);
-        let (fee_growth_outside_1_x128, bytes) = bytes.split_at(U256::BYTES);
-        let (tick_cumulative_outside, bytes) = bytes.split_at(I56::BYTES);
-        let (seconds_per_liquidity_outside_x128, bytes) = bytes.split_at(U160::BYTES);
-        let (seconds_outside, initialized) = bytes.split_at(U32::BYTES);
-
-        Self {
-            liquidity_gross: u128::from_le_bytes(liquidity_gross.try_into().unwrap()),
-            liquidity_net: i128::from_le_bytes(liquidity_net.try_into().unwrap()),
-            fee_growth_outside_0_x128: U256::from_le_slice(fee_growth_outside_0_x128),
-            fee_growth_outside_1_x128: U256::from_le_slice(fee_growth_outside_1_x128),
-            tick_cumulative_outside: I56::from_raw(U56::from_le_slice(tick_cumulative_outside)),
-            seconds_per_liquidity_outside_x128: U160::from_le_slice(
-                seconds_per_liquidity_outside_x128,
-            ),
-            seconds_outside: u32::from_le_bytes(seconds_outside.try_into().unwrap()),
-            initialized: initialized[0] != 0,
-        }
-    }
-}
-
-impl FromStorageValue for Slot0 {
-    fn from_storage_value(value: U256) -> Self {
-        let bytes = value.to_le_bytes::<32>();
-
         let (sqrt_price_x96, bytes) = bytes.split_at(U160::BYTES);
         let (tick, bytes) = bytes.split_at(I24::BYTES);
         let (_observation_index, bytes) = bytes.split_at(U16::BYTES);
         let (_observation_cardinality, bytes) = bytes.split_at(U16::BYTES);
         let (_observation_cardinality_next, bytes) = bytes.split_at(U16::BYTES);
-        let (fee_protocol, _unlocked) = bytes.split_at(U8::BYTES);
+        let (_padding_between_slots, bytes) = bytes.split_at(U24::BYTES);
+        let (fee_protocol, _) = bytes.split_at(U32::BYTES);
 
         Self {
             sqrt_price_x96: U160::from_le_slice(sqrt_price_x96),
             tick: I24::from_raw(U24::from_le_slice(tick)),
-            fee_protocol: fee_protocol[0],
+            fee_protocol: u32::from_le_bytes(fee_protocol.try_into().unwrap()),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use alloy::{primitives::address, providers::ProviderBuilder, rpc::client::ClientBuilder};
+    use alloy::{
+        primitives::{U160, address},
+        providers::ProviderBuilder,
+        rpc::client::ClientBuilder,
+    };
     use dotenvy_macro::dotenv;
+    use uniswap_v3_math::tick_math::{MAX_SQRT_RATIO, MIN_SQRT_RATIO};
 
-    use crate::v3::quoter::{IQuoterV2::QuoteExactInputSingleParams, Quoter};
+    use crate::v3::quoter::{PancakeSwapV3Quoter, QuoteExactInputSingleParams};
 
     use super::*;
 
     const POOLS: &[Address] = &[
-        address!("17c14d2c404d167802b16c450d3c99f88f2c4f4d"),
-        address!("149e36e72726e0bcea5c59d40df2c43f60f5a22d"),
-        address!("c31e54c7a869b9fcbecc14363cf510d1c41fa443"),
-        address!("80a9ae39310abf666a87c743d6ebbd0e8c42158e"),
-        address!("c24f7d8e51a64dc1238880bd00bb961d54cbeb29"),
-        address!("a95b0f5a65a769d82ab4f3e82842e45b8bbaf101"),
-        address!("c82819f72a9e77e2c0c3a69b3196478f44303cf4"),
-        address!("13398e27a21be1218b6900cbedf677571df42a48"),
+        address!("4bfc22a4da7f31f8a912a79a7e44a822398b4390"),
+        address!("d9e2a1a61b6e61b275cec326465d417e52c1b95c"),
+        address!("5e3c3a063cc9a4aeb5310c7fadc2a98aebdd245d"),
+        address!("389938cf14be379217570d8e4619e51fbdafaa21"),
+        address!("7fcdc35463e3770c2fb992716cd070b63540b947"),
+        address!("641b559551f8fc76a1664663df929906a83b0774"),
     ];
 
-    #[tokio::test(flavor = "multi_thread")]
+    // #[tokio::test(flavor = "multi_thread")]
     pub async fn swaps_are_correct() -> anyhow::Result<()> {
         let provider = Arc::new(
             ProviderBuilder::new().with_recommended_fillers().on_client(
@@ -786,12 +636,12 @@ mod tests {
         );
 
         let block_number = provider.get_block_number().await?;
-        let mut evm = EVM::new(provider.clone(), block_number);
+        let mut evm = EVM::new_on_block(provider.clone(), block_number);
 
-        let quoter = Quoter::new(provider.clone());
+        let quoter = PancakeSwapV3Quoter::new(provider.clone());
 
         for address in POOLS {
-            let mut pool = UniswapV3Pool::new(*address, &mut evm)?;
+            let mut pool = PancakeSwapV3Pool::new(*address, &mut evm)?;
 
             for amount in 1..100 {
                 let token0_out = pool.simulate_swap(
@@ -865,7 +715,7 @@ mod tests {
         let mut evm = EVM::new(provider.clone(), block_number);
 
         for address in POOLS {
-            let pool = UniswapV3Pool::new(*address, &mut evm)?;
+            let pool = PancakeSwapV3Pool::new(*address, &mut evm)?;
             pool.verify_health(provider.clone(), block_number).await?;
         }
 

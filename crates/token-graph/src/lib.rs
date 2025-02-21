@@ -1,19 +1,24 @@
-use std::{collections::BTreeMap, sync::Arc, time::Instant};
-
+use core::f64;
 use futures::future;
 use hashbrown::{HashMap, HashSet};
+use rayon::prelude::*;
+use std::{cmp::Ordering, collections::BTreeMap, sync::Arc, time::Instant};
 
 use petgraph::{
+    data::DataMap,
     dot::Dot,
     graph::{DiGraph, EdgeIndex, NodeIndex},
-    visit::IntoNodeReferences,
+    visit::{EdgeRef, IntoNodeReferences},
 };
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::pool::LiquidityPool;
 use plutus_evm::{
     EVM,
     alloy::{eips::BlockId, primitives::BlockNumber, providers::Provider},
-    revm::primitives::{Address, U256, address, map::AddressMap},
+    revm::primitives::{
+        Address, U256, address,
+        map::{AddressMap, AddressSet},
+    },
 };
 use tokio::task::spawn_blocking;
 
@@ -31,6 +36,8 @@ pub struct TokenGraph<P: Provider> {
     graph: InnerTokenGraph,
     pool_edge_map: AddressMap<(EdgeIndex, EdgeIndex)>,
     token_map: AddressMap<NodeIndex>,
+
+    cycles: AddressMap<Vec<Vec<NodeIndex>>>,
 
     amount: f64,
 }
@@ -62,24 +69,17 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
     ) -> anyhow::Result<Self> {
         let mut graph = InnerTokenGraph::new();
 
-        let now = Instant::now();
         let tokens = get_unique_tokens(&pools);
-        tracing::info!("get_unique_tokens {:?}", now.elapsed());
 
-        let now = Instant::now();
         let pool_map = AddressMap::from_iter(
             pools
                 .iter()
                 .enumerate()
                 .map(|(i, pool)| (pool.address(), i)),
         );
-        tracing::info!("pool map {:?}", now.elapsed());
 
-        let now = Instant::now();
         let token_map = init_nodes(tokens, &mut graph);
-        tracing::info!("init_nodes {:?}", now.elapsed());
 
-        let now = Instant::now();
         let pool_edge_map = init_edges(
             pools.clone(),
             amount,
@@ -89,17 +89,17 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             provider,
         )
         .await?;
-        tracing::info!("init_edges {:?}", now.elapsed());
 
         tracing::info!("node count: {}", graph.node_count());
         tracing::info!("edge count: {}", graph.edge_count());
 
-        // let dot = Dot::with_config(&graph, &[]);
-        // std::fs::write("graph", format!("{dot}")).unwrap();
+        let dot = Dot::with_config(&graph, &[]);
+        std::fs::write("graph", format!("{dot}")).unwrap();
 
         Ok(Self {
             pools,
             pool_map,
+            cycles: simple_cycles(&graph),
             graph,
             pool_edge_map,
             token_map,
@@ -107,38 +107,60 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         })
     }
 
-    pub fn apply_state(&mut self, traces: Vec<AddressMap<HashMap<U256, U256>>>, evm: &mut EVM<P>) {
-        for trace in traces {
-            for (address, changes) in trace {
-                let Some(pool_index) = self.pool_map.get(&address) else {
-                    continue;
-                };
+    pub async fn apply_state(
+        &mut self,
+        traces: Vec<AddressMap<HashMap<U256, U256>>>,
+        provider: P,
+        block: BlockId,
+        evm: &mut EVM<P>,
+    ) -> AddressSet
+    where
+        P: Clone,
+    {
+        let mut changed_addresses = AddressSet::default();
+        let mut affected_tokens = AddressSet::default();
 
-                let pool = self.pools.get_mut(*pool_index).unwrap();
-                pool.apply_storage_changes(changes);
-
-                let (edge0, edge1) = self.pool_edge_map[&address];
-
-                let (token0, token1) = pool.tokens();
-
-                self.graph.edge_weight_mut(edge0).unwrap().weight =
-                    calculate_edge(pool.as_mut(), &token0, &token1, self.amount, evm)
-                        .pool
-                        .weight;
-
-                self.graph.edge_weight_mut(edge1).unwrap().weight =
-                    calculate_edge(pool.as_mut(), &token1, &token0, self.amount, evm)
-                        .pool
-                        .weight;
-            }
+        for trace in &traces {
+            changed_addresses.extend(trace.keys());
         }
+
+        for address in changed_addresses {
+            let Some(pool_index) = self.pool_map.get(&address) else {
+                continue;
+            };
+
+            let pool = self.pools.get_mut(*pool_index).unwrap();
+            pool.update_with_provider(provider.clone(), block)
+                .await
+                .unwrap();
+            // pool.apply_storage_changes(changes);
+
+            let (edge0, edge1) = self.pool_edge_map[&address];
+
+            let (token0, token1) = pool.tokens();
+
+            affected_tokens.insert(token0.address);
+            affected_tokens.insert(token1.address);
+
+            self.graph.edge_weight_mut(edge0).unwrap().weight =
+                calculate_edge(pool.as_mut(), &token0, &token1, self.amount, evm)
+                    .pool
+                    .weight;
+
+            self.graph.edge_weight_mut(edge1).unwrap().weight =
+                calculate_edge(pool.as_mut(), &token1, &token0, self.amount, evm)
+                    .pool
+                    .weight;
+        }
+
+        affected_tokens
     }
 
     async fn mmbf(&self) -> Vec<Vec<Step<P>>> {
         let now = Instant::now();
         let (line_graph, token_to_nodes) = finding::create_line_graph(&self.graph);
-        tracing::info!("line graph created in {:?}", now.elapsed());
-        tracing::info!("line graph edges: {}", line_graph.edge_count());
+        // tracing::info!("line graph created in {:?}", now.elapsed());
+        // tracing::info!("line graph edges: {}", line_graph.edge_count());
 
         let graph = Arc::new(self.graph.clone());
 
@@ -151,7 +173,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
 
             spawn_blocking(move || finding::mmbf(&graph, token, line_graph, token_to_nodes))
         });
-        tracing::info!("tasks created in {:?}", now.elapsed());
+        // tracing::info!("tasks created in {:?}", now.elapsed());
 
         let now = Instant::now();
         let opportunities = future::join_all(tasks)
@@ -171,7 +193,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
                     .collect::<Vec<_>>()
             })
             .collect();
-        tracing::info!("scanned in {:?}", now.elapsed());
+        // tracing::info!("scanned in {:?}", now.elapsed());
 
         opportunities
     }
@@ -231,28 +253,129 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         // ]
     }
 
-    fn simle_paths(&self) {
-        for node in self.graph.node_indices() {
-            let paths: Vec<_> =
-                petgraph::algo::all_simple_paths::<Vec<_>, _>(&self.graph, node, node, 1, Some(4))
-                    .collect();
-        }
+    pub async fn find_opportunities(&self, target_tokens: AddressSet) -> Vec<Vec<Step<P>>> {
+        let now = Instant::now();
+
+        // let opportunities = self.mmbf().await;
+        // let opportunities = self.bellman_ford().await;
+        // let opportunities = self.spfa();
+        let opportunities = self.simple_finding(target_tokens);
+
+        // tracing::info!("searched in {:?}", now.elapsed());
+
+        opportunities
     }
 
-    pub async fn find_opportunities(&self) -> Vec<Vec<Step<P>>> {
-        // petgraph::algo
-        // self.mmbf().await
-        // self.bellman_ford().await
-        let now = Instant::now();
-        let a = self.spfa();
-        tracing::info!("{:?}", now.elapsed());
-        a
+    fn simple_finding(&self, target_tokens: AddressSet) -> Vec<Vec<Step<P>>> {
+        let mut cycles: Vec<_> = dedup_cycles(
+            target_tokens
+                .iter()
+                .flat_map(|address| self.cycles[address].clone())
+                .collect(),
+        );
 
-        // let now = Instant::now();
-        // self.simle_paths();
-        // tracing::info!("{:?}", now.elapsed());
+        let mut opportunities: Vec<_> = cycles
+            .par_iter()
+            .filter_map(|cycle| {
+                let mut steps = vec![];
+                let mut profit = 1.0;
+
+                for pair in cycle.windows(2) {
+                    let (node0, node1) = (pair[0], pair[1]);
+
+                    let edges = self.graph.edges_connecting(node0, node1);
+
+                    let best_weight = edges
+                        .max_by(|&a, &b| a.weight().weight.partial_cmp(&b.weight().weight).unwrap())
+                        .unwrap()
+                        .weight();
+
+                    profit *= best_weight.weight;
+
+                    steps.push((node0, node1, best_weight.pool));
+                }
+
+                if profit > 1.0 {
+                    Some((profit, steps))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // let mut opportunities: Vec<_> = target_tokens
+        //     .iter()
+        //     .flat_map(|address| {
+        //         self.cycles[address]
+        //             .par_iter()
+        //             .filter_map(|cycle| {
+        //                 let mut steps = vec![];
+        //                 let mut profit = 1.0;
         //
-        // vec![]
+        //                 for pair in cycle.windows(2) {
+        //                     let (node0, node1) = (pair[0], pair[1]);
+        //
+        //                     let edges = self.graph.edges_connecting(node0, node1);
+        //
+        //                     let best_weight = edges
+        //                         .max_by(|&a, &b| {
+        //                             a.weight().weight.partial_cmp(&b.weight().weight).unwrap()
+        //                         })
+        //                         .unwrap()
+        //                         .weight();
+        //
+        //                     profit *= best_weight.weight;
+        //
+        //                     steps.push((node0, node1, best_weight.pool));
+        //                 }
+        //
+        //                 if profit > 1.0 {
+        //                     Some((profit, steps))
+        //                 } else {
+        //                     None
+        //                 }
+        //             })
+        //             .collect::<Vec<_>>()
+        //     })
+        //     .collect();
+
+        opportunities.sort_by(|a, b| match PartialOrd::partial_cmp(&b.0, &a.0) {
+            Some(ordering) => ordering,
+            None => unreachable!(),
+        });
+
+        let opportunities: Vec<_> = opportunities.into_iter().map(|a| a.1).collect();
+
+        let opportunities: Vec<_> = opportunities
+            .into_iter()
+            .filter(|opportunity| {
+                for step in opportunity {
+                    let (token0, token1) = (self.graph[step.0].address, self.graph[step.1].address);
+
+                    if target_tokens.contains(&token0) || target_tokens.contains(&token1) {
+                        return true;
+                    }
+                }
+
+                false
+            })
+            .collect();
+
+        let opportunities = opportunities
+            .into_iter()
+            .map(|steps| {
+                steps
+                    .into_iter()
+                    .map(|step| Step {
+                        token0: self.graph[step.0].clone(),
+                        token1: self.graph[step.1].clone(),
+                        pool: self.pools[self.pool_map[&step.2]].clone(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        opportunities
     }
 }
 
@@ -341,7 +464,8 @@ fn calculate_edge<P: Provider>(
 ) -> CalculatedEdge {
     let amount_in = token0.to_token_amount(amount);
     let amount_out = pool.simulate_swap(token0.address, amount_in, evm);
-    let weight = -(f64::from(amount_out) / f64::from(amount_in)).log10();
+    // let weight = -(f64::from(amount_out) / f64::from(amount_in)).log10();
+    let weight = f64::from(amount_out) / f64::from(amount_in);
 
     CalculatedEdge {
         token0: token0.address,
@@ -351,4 +475,69 @@ fn calculate_edge<P: Provider>(
             weight,
         },
     }
+}
+
+fn create_sorted_node_path(path: &[NodeIndex]) -> Vec<NodeIndex> {
+    let mut nodes = HashSet::<NodeIndex>::new();
+
+    for node in path {
+        nodes.insert(*node);
+    }
+
+    let mut nodes = Vec::from_iter(nodes);
+    nodes.sort();
+
+    nodes
+}
+
+fn dedup_cycles(cycles: Vec<Vec<NodeIndex>>) -> Vec<Vec<NodeIndex>> {
+    let mut sorted_cycles: HashSet<Vec<NodeIndex>> = HashSet::new();
+
+    let mut filtered = vec![];
+
+    for cycle in cycles {
+        let sorted = create_sorted_node_path(&cycle);
+
+        if !sorted_cycles.contains(&sorted) {
+            sorted_cycles.insert(sorted);
+            filtered.push(cycle);
+        }
+    }
+
+    filtered
+}
+
+fn simple_cycles(graph: &InnerTokenGraph) -> AddressMap<Vec<Vec<NodeIndex>>> {
+    let cycles: AddressMap<Vec<Vec<NodeIndex>>> = HashMap::from_iter(
+        graph
+            .node_indices()
+            .collect::<Vec<_>>()
+            .into_par_iter()
+            .map(|node| {
+                (
+                    graph[node].address,
+                    Vec::from_iter(
+                        petgraph::algo::all_simple_paths::<Vec<_>, _>(
+                            graph,
+                            node,
+                            node,
+                            2,
+                            Some(5),
+                        )
+                        .collect::<HashSet<_>>(),
+                    ),
+                )
+            })
+            .collect::<Vec<_>>(),
+    );
+
+    let mut cycle_count = 0;
+
+    for cycle in &cycles {
+        cycle_count += cycle.1.len();
+    }
+
+    tracing::info!("cycles: {cycle_count}");
+
+    cycles
 }

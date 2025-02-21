@@ -1,5 +1,7 @@
+use std::ops::Deref;
+
 use alloy::{
-    primitives::{Address, U256, address},
+    primitives::{Address, address},
     providers::Provider,
 };
 use plutus_defi_protocols_uniswap::v2::router::UniswapV2Router;
@@ -15,15 +17,12 @@ impl<P: Provider> PancakeSwapV2Router<P> {
             provider,
         ))
     }
+}
 
-    pub async fn get_amount_out(
-        &self,
-        amount_in: U256,
-        reserve_in: U256,
-        reserve_out: U256,
-    ) -> Result<U256, alloy::contract::Error> {
-        self.0
-            .get_amount_out(amount_in, reserve_in, reserve_out)
-            .await
+impl<P> Deref for PancakeSwapV2Router<P> {
+    type Target = UniswapV2Router<P>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }

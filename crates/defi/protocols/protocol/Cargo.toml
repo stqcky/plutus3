@@ -18,4 +18,3 @@ tracing.workspace = true
 dyn-clone.workspace = true
 futures.workspace = true
 parking_lot = "0.12.3"
-rayon = "1.10.0"

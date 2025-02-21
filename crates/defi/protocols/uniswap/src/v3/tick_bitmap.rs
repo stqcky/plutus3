@@ -4,8 +4,8 @@ use uniswap_v3_math::{bit_math, error::UniswapV3MathError, tick_bitmap::position
 
 const U256_1: U256 = uint!(1U256);
 
-pub fn next_initialized_tick_within_one_word<P: Provider>(
-    tick_bitmap: &mut SolidityMapping<i16, U256, 6>,
+pub fn next_initialized_tick_within_one_word<P: Provider, const SLOT: u128>(
+    tick_bitmap: &mut SolidityMapping<i16, U256, SLOT>,
     tick: i32,
     tick_spacing: i32,
     lte: bool,

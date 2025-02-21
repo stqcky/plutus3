@@ -1,8 +1,8 @@
-mod factory;
+pub mod factory;
 pub mod fee;
 pub mod pool;
 pub mod quoter;
-mod tick_bitmap;
+pub mod tick_bitmap;
 
 use alloy::{
     eips::BlockId,

@@ -18,7 +18,7 @@ sol!(
     }
 );
 
-const DEPLOYMENT_ADDRESS: Address = address!("4752ba5dbc23f44d87826276bf6fd6b1c372ad24");
+pub const DEPLOYMENT_ADDRESS: Address = address!("4752ba5dbc23f44d87826276bf6fd6b1c372ad24");
 
 pub struct UniswapV2Router<P>(IUniswapV2Router02Instance<BoxTransport, P>);
 

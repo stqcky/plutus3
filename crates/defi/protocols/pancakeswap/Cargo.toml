@@ -16,3 +16,4 @@ anyhow.workspace = true
 async-trait.workspace = true
 hashbrown.workspace = true
 tokio.workspace = true
+uniswap_v3_math.workspace = true

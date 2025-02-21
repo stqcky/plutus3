@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 
 use crate::InnerTokenGraph;
 
+#[derive(PartialEq, Eq, Hash)]
 pub struct Step {
     pub token0: ERC20,
     pub token1: ERC20,
@@ -16,82 +17,75 @@ pub struct Step {
 pub fn find_cycle(graph: &InnerTokenGraph) -> Vec<Vec<Step>> {
     let node_count = graph.node_count();
 
-    let start_node = NodeIndex::new(0);
-    // let mut max_profit = None;
+    let mut paths = HashSet::<Vec<Step>>::new();
 
-    let (predecessor, enqueued) = spfa(graph, start_node);
+    let mut working_graph = graph.to_owned();
 
-    let mut paths = HashSet::new();
+    while working_graph.edge_count() > 0 {
+        let (predecessor, enqueued) = spfa(&working_graph);
 
-    for node in graph.node_indices() {
-        if enqueued[node.index()] > node_count {
-            if let Some((cycle_edges, profit)) = trace_cycle(graph, &predecessor, node) {
-                paths.insert(cycle_edges);
-                // match max_profit {
-                //     Some((_, current_profit)) if profit < current_profit => {
-                //         max_profit = Some((cycle_edges, profit));
-                //     }
-                //     None => max_profit = Some((cycle_edges, profit)),
-                //     _ => {}
-                // }
+        for node in working_graph.node_indices() {
+            if enqueued[node.index()] > node_count {
+                if let Some((cycle_edges, profit)) = trace_cycle(&working_graph, &predecessor, node)
+                {
+                    // paths.insert(cycle_edges);
+                    paths.insert(
+                        cycle_edges
+                            .into_iter()
+                            .map(|edge| {
+                                let (u, v) = working_graph.edge_endpoints(edge).unwrap();
+                                let pool = working_graph[edge].pool;
+
+                                Step {
+                                    token0: working_graph[u].clone(),
+                                    token1: working_graph[v].clone(),
+                                    pool,
+                                }
+                            })
+                            .collect(),
+                    );
+                }
             }
         }
+
+        working_graph.remove_edge(working_graph.edge_indices().next().unwrap());
+        working_graph.remove_node(working_graph.node_indices().next().unwrap());
     }
 
-    // tracing::info!("paths: {}", paths.len());
+    tracing::info!("paths: {}", paths.len());
 
-    paths
-        .into_iter()
-        .map(|path| {
-            path.into_iter()
-                .map(|edge| {
-                    let (u, v) = graph.edge_endpoints(edge).unwrap();
-                    let pool = graph[edge].pool;
+    Vec::from_iter(paths)
 
-                    Step {
-                        token0: graph[u].clone(),
-                        token1: graph[v].clone(),
-                        pool,
-                    }
-                })
-                .collect()
-        })
-        .collect()
+    // paths
 
-    // max_profit.map(|(edges, _)| {
-    //     edges
-    //         .into_iter()
-    //         .map(|edge| {
-    //             let (u, v) = graph.edge_endpoints(edge).unwrap();
-    //             let pool = graph[edge].pool;
+    // paths
+    //     .into_iter()
+    //     .map(|path| {
+    //         path.into_iter()
+    //             .map(|edge| {
+    //                 let (u, v) = graph.edge_endpoints(edge).unwrap();
+    //                 let pool = graph[edge].pool;
     //
-    //             Step {
-    //                 token0: graph[u].clone(),
-    //                 token1: graph[v].clone(),
-    //                 pool,
-    //             }
-    //         })
-    //         .collect()
-    // })
+    //                 Step {
+    //                     token0: graph[u].clone(),
+    //                     token1: graph[v].clone(),
+    //                     pool,
+    //                 }
+    //             })
+    //             .collect()
+    //     })
+    //     .collect()
 }
 
-fn spfa(graph: &InnerTokenGraph, source: NodeIndex) -> (Vec<Option<EdgeIndex>>, Vec<usize>) {
+fn spfa(graph: &InnerTokenGraph) -> (Vec<Option<EdgeIndex>>, Vec<usize>) {
     let node_count = graph.node_count();
 
-    // let mut distance = vec![f64::INFINITY; node_count];
     let mut distance = vec![0.0; node_count];
     let mut predecessor = vec![None; node_count];
 
-    // let mut in_queue = vec![false; node_count];
     let mut in_queue = vec![true; node_count];
-    // let mut enqueued = vec![0; node_count];
     let mut enqueued = vec![1; node_count];
-    // let mut queue = VecDeque::from([source]);
     let mut queue = VecDeque::from_iter(graph.node_indices());
-
-    // distance[source.index()] = 0.0;
-    // in_queue[source.index()] = true;
-    // enqueued[source.index()] = 1;
 
     while let Some(u) = queue.pop_front() {
         in_queue[u.index()] = false;
@@ -108,7 +102,8 @@ fn spfa(graph: &InnerTokenGraph, source: NodeIndex) -> (Vec<Option<EdgeIndex>>, 
                     enqueued[v.index()] += 1;
 
                     if enqueued[v.index()] > node_count {
-                        continue;
+                        // continue;
+                        return (predecessor, enqueued);
                     }
 
                     if !queue.is_empty() && distance[v.index()] < distance[queue[0].index()] {

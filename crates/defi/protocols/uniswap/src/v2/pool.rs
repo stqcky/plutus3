@@ -177,6 +177,20 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
 
         Ok(true)
     }
+
+    async fn update_with_provider(
+        &mut self,
+        provider: P,
+        block: BlockId,
+    ) -> Result<(), alloy::contract::Error> {
+        let instance = IUniswapV2PoolInstance::new(self.address, provider);
+        let reserves = instance.getReserves().block(block).call().await?;
+
+        self.reserves.0 = reserves._reserve0;
+        self.reserves.1 = reserves._reserve1;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

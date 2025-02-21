@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use std::{sync::Arc, time::Instant};
 
 use alloy::{
@@ -14,10 +15,18 @@ use plutus_evm::EVM;
 use plutus_monitoring::{StateChange, StateMonitor, health::HealthMonitor};
 use plutus_storage::Storage;
 use plutus_token_graph::{Step, TokenGraph};
-use tokio::sync::mpsc;
+use tokio::sync::{Semaphore, mpsc};
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::EnvFilter;
 
 fn init_tracing() {
+    let filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::DEBUG.into())
+        .from_env()
+        .unwrap();
+
     tracing_subscriber::fmt()
+        // .with_env_filter(filter)
         .event_format(tracing_subscriber::fmt::format().without_time().compact())
         .init();
 }
@@ -50,11 +59,13 @@ async fn main() -> anyhow::Result<()> {
     // let blockchain = Blockchain::new(provider.get_chain_id().await?);
     let storage = Storage::new().await?;
 
-    let protocol_registry = ProtocolRegistry::new(provider.clone())
-        .await?
-        .with::<UniswapV2Protocol>()?
-        .with::<UniswapV3Protocol>()?
-        .with::<PancakeSwapV2Protocol>()?;
+    let protocol_registry = Arc::new(
+        ProtocolRegistry::new(provider.clone())
+            .await?
+            .with::<UniswapV2Protocol>()?
+            .with::<UniswapV3Protocol>()?
+            .with::<PancakeSwapV2Protocol>()?,
+    );
 
     protocol_registry
         .discover_and_store(block_number, &storage)
@@ -84,11 +95,9 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("pool count: {}", pools.len());
 
-    let mut evm = EVM::new_on_block(provider.clone(), block_number);
-
     tracing::info!("creating token graph");
     let now = Instant::now();
-    let mut token_graph = TokenGraph::new(pools, 1.0, block_number, provider.clone()).await?;
+    let mut token_graph = TokenGraph::new(pools, 0.001, block_number, provider.clone()).await?;
     tracing::info!("token graph created in {:?}", now.elapsed());
 
     let health_monitor = HealthMonitor::new(provider.clone());
@@ -105,45 +114,114 @@ async fn main() -> anyhow::Result<()> {
             true
         };
 
-        tracing::info!(
-            "block {}{}",
-            state_change.block_header.number,
-            if catching_up { ", catching up" } else { "" }
-        );
+        // tracing::info!(
+        //     "block {}{}",
+        //     state_change.block_header.number,
+        //     if catching_up { ", catching up" } else { "" }
+        // );
 
-        let mut evm = EVM::new_on_block(provider.clone(), state_change.block_header.number);
+        let block = state_change.block_header.number;
+
+        let mut evm = EVM::new_on_block(provider.clone(), block);
 
         if catching_up {
-            token_graph.apply_state(state_change.changes, &mut evm);
+            token_graph
+                .apply_state(
+                    state_change.changes,
+                    provider.clone(),
+                    block.into(),
+                    &mut evm,
+                )
+                .await;
             continue;
         }
 
-        token_graph.apply_state(state_change.changes, &mut evm);
+        let affected_tokens = token_graph
+            .apply_state(
+                state_change.changes,
+                provider.clone(),
+                block.into(),
+                &mut evm,
+            )
+            .await;
 
-        if last_health_check.elapsed().as_secs() >= 30 {
+        if last_health_check.elapsed().as_secs() >= 2 {
             health_monitor
                 .check_health(state_change.block_header.number, token_graph.pools.clone());
 
             last_health_check = Instant::now();
         }
 
-        for mut opportunity in token_graph.find_opportunities().await {
+        let opportunities = token_graph.find_opportunities(affected_tokens).await;
+        tracing::info!("found {} opportunities", opportunities.len());
+
+        for mut opportunity in opportunities {
+            // simulate_opportunity(&mut opportunity, &mut evm, 1.0, &protocol_registry);
+
             let Some(x) = optimize_profit(&mut opportunity, &mut evm) else {
+                tracing::error!("failed to optimize profit");
                 continue;
             };
 
+            // tracing::info!("optimized x: {x}");
+
+            let now = Instant::now();
             let profit = calculate_opportunity(&mut opportunity, &mut evm, x) - x;
+            // tracing::info!("calculate opportunity: {:?}", now.elapsed());
+
+            if profit <= 0.0 {
+                tracing::error!("profit <= 0");
+                continue;
+            }
+
+            let now = Instant::now();
             let usd_profit =
                 get_usd_value(&opportunity[0].token0, profit, &mut evm, &protocol_registry);
+            // tracing::info!("get usd value: {:?}", now.elapsed());
 
             if usd_profit >= 0.01 {
+                // tracing::info!("optimized amount in:");
                 simulate_opportunity(&mut opportunity, &mut evm, x, &protocol_registry);
                 println!("");
+            } else {
+                tracing::error!("usd profit < 0.01 ({usd_profit})");
             }
         }
+
+        // let semaphore = Arc::new(Semaphore::new(12));
+        // let tasks: Vec<_> = opportunities
+        //     .into_iter()
+        //     .map(|mut opportunity| {
+        //         let provider = provider.clone();
+        //         let protocol_registry = protocol_registry.clone();
+        //         let semaphore = semaphore.clone();
+        //
+        //         tokio::spawn(async move {
+        //             let _permit = semaphore.acquire_owned().await.unwrap();
+        //             let mut evm = EVM::new_on_block(provider, block);
+        //
+        //             let now = Instant::now();
+        //         })
+        //     })
+        //     .collect();
+        //
+        // futures::future::try_join_all(tasks).await?;
     }
 
     Ok(())
+}
+
+fn calculate_roi<P: Provider>(opportunity: &mut [Step<P>], evm: &mut EVM<P>) -> f64 {
+    let token0 = opportunity[0].token0.clone();
+
+    let start_amount = token0.to_token_amount(1.0);
+    let mut amount = start_amount;
+
+    for step in opportunity {
+        amount = step.pool.simulate_swap(step.token0.address, amount, evm);
+    }
+
+    f64::from(amount) / f64::from(start_amount)
 }
 
 fn calculate_opportunity<P: Provider>(
@@ -202,48 +280,50 @@ fn simulate_opportunity<P: Provider + std::fmt::Debug>(
     amount
 }
 
+// fn optimize_profit<P: Provider>(opportunity: &mut [Step<P>], evm: &mut EVM<P>) -> Option<f64> {
+//     let mut f = |x| calculate_opportunity(opportunity, evm, x) - x;
+//
+//     let mut left = 0.0;
+//     let mut right = 1000.0;
+//
+//     let max_iter = 70;
+//
+//     for _ in 0..max_iter {
+//         let left_third = left + (right - left) / 3.0;
+//         let right_third = right - (right - left) / 3.0;
+//
+//         if f(left_third) < f(right_third) {
+//             left = left_third;
+//         } else {
+//             right = right_third;
+//         }
+//     }
+//
+//     Some((left + right) / 2.0)
+// }
+
 fn optimize_profit<P: Provider>(opportunity: &mut [Step<P>], evm: &mut EVM<P>) -> Option<f64> {
-    let max_iter = 40;
+    let mut get_profit = |x| calculate_opportunity(opportunity, evm, x) - x;
 
-    let mut g = |x| calculate_opportunity(opportunity, evm, x) - x;
+    let mut lower_bound = 0.0;
+    let mut upper_bound = 1000.0;
 
-    let mut a = 0.0;
-    let mut c = 10.0;
+    let max_iter = 50;
 
-    while g(c) > 0.0 {
-        c *= 2.0;
-    }
-
-    let mut best_x = a;
-    let mut best_profit = g(a);
     for _ in 0..max_iter {
-        if c < a {
-            break;
-        }
+        let middle = (lower_bound + upper_bound) / 2.0;
 
-        let m1 = a + (c - a) / 3.0;
-        let m2 = c - (c - a) / 3.0;
+        let lower_profit = get_profit(lower_bound + (middle - lower_bound) / 2.0);
+        let upper_profit = get_profit(middle + (upper_bound - middle) / 2.0);
 
-        let g1 = g(m1);
-        let g2 = g(m2);
-
-        if g1 > best_profit {
-            best_profit = g1;
-            best_x = m1;
-        }
-        if g2 > best_profit {
-            best_profit = g2;
-            best_x = m2;
-        }
-
-        if g1 > g2 {
-            c = m2;
+        if lower_profit > upper_profit {
+            upper_bound = middle;
         } else {
-            a = m1;
+            lower_bound = middle;
         }
     }
 
-    (best_profit > 0.0).then_some(best_x)
+    Some((lower_bound + upper_bound) / 2.0)
 }
 
 pub const USDT: Address = address!("Fd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9");
@@ -278,7 +358,7 @@ fn get_usd_value<P: Provider + std::fmt::Debug>(
         registry
             .get_token_value(token.address, weth.address, token_amount, evm)
             .unwrap(),
-    ) * 2666.39;
+    ) * 2723.39;
 
     usdt_value.max(usdc_value).max(weth_value)
 }

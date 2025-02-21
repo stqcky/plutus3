@@ -15,7 +15,7 @@ use tokio::{sync::Semaphore, task::spawn_blocking};
 
 use crate::{DiscoverableProtocol, ProtocolFactory, filtering::PoolFilter, pool::LiquidityPool};
 
-pub const POOL_CREATION_TASK_LIMIT: usize = 50;
+pub const POOL_CREATION_TASK_LIMIT: usize = 1;
 
 pub struct ProtocolRegistry<P> {
     chain_id: ChainId,
@@ -95,7 +95,7 @@ impl<P: Provider> ProtocolRegistry<P> {
         Ok(())
     }
 
-    async fn create_pools_from_records(
+    pub async fn create_pools_from_records(
         &self,
         records: Vec<IdentifiedLiquidityPool>,
         block: BlockId,
@@ -175,7 +175,13 @@ impl<P: Provider> ProtocolRegistry<P> {
         Ok(future::try_join_all(tasks)
             .await?
             .into_iter()
-            .filter_map(Result::ok)
+            .filter_map(|x| {
+                if let Err(ref e) = x {
+                    tracing::error!("{e}");
+                }
+
+                x.ok()
+            })
             .collect())
     }
 

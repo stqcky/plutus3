@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use alloy::{
+    eips::BlockId,
     primitives::{Address, BlockNumber, U256},
     providers::Provider,
 };
@@ -16,7 +17,13 @@ pub trait LiquidityPool<P: Provider>: DynClone + Send + Sync {
     fn address(&self) -> Address;
 
     fn simulate_swap(&mut self, token: Address, amount: U256, evm: &mut EVM<P>) -> U256;
+
     fn apply_storage_changes(&mut self, changes: HashMap<U256, U256>);
+    async fn update_with_provider(
+        &mut self,
+        provider: P,
+        block: BlockId,
+    ) -> Result<(), alloy::contract::Error>;
 
     fn is_liquidity_valid(&self) -> bool;
 

@@ -29,13 +29,17 @@ sol!(
     }
 );
 
-const DEPLOYMENT_ADDRESS: Address = address!("61fFE014bA17989E743c5F6cB21bF9697530B21e");
+pub const DEPLOYMENT_ADDRESS: Address = address!("61fFE014bA17989E743c5F6cB21bF9697530B21e");
 
 pub struct Quoter<P>(IQuoterV2Instance<BoxTransport, P>);
 
 impl<P: Provider> Quoter<P> {
     pub fn new(provider: P) -> Self {
-        Self(IQuoterV2Instance::new(DEPLOYMENT_ADDRESS, provider))
+        Self::new_on_address(DEPLOYMENT_ADDRESS, provider)
+    }
+
+    pub fn new_on_address(address: Address, provider: P) -> Self {
+        Self(IQuoterV2Instance::new(address, provider))
     }
 
     pub async fn quote_exact_input_single(
