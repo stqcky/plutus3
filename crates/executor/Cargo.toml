@@ -1,0 +1,10 @@
+[package]
+name = "plutus-executor"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+alloy = { workspace = true, features = ["full", "node-bindings"] }
+plutus-token-graph.workspace = true
+anyhow.workspace = true
+plutus-defi-protocols-uniswap.workspace = true

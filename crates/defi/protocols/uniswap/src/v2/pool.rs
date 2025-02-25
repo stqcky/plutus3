@@ -134,10 +134,6 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
         !self.reserves.0.is_zero() && !self.reserves.1.is_zero()
     }
 
-    fn token_addresses(&self) -> (Address, Address) {
-        (self.token0.address, self.token1.address)
-    }
-
     async fn tokens_locked(&self, _provider: P) -> Result<(U256, U256), alloy::contract::Error> {
         Ok((U256::from(self.reserves.0), U256::from(self.reserves.1)))
     }
@@ -150,8 +146,12 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
         self.address
     }
 
-    fn tokens(&self) -> (ERC20, ERC20) {
-        (self.token0.clone(), self.token1.clone())
+    fn token0(&self) -> &ERC20 {
+        &self.token0
+    }
+
+    fn token1(&self) -> &ERC20 {
+        &self.token1
     }
 
     async fn verify_health(

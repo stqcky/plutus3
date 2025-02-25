@@ -75,18 +75,6 @@ impl<P: Provider + Clone + 'static> StateMonitor<P> {
         Ok(())
     }
 
-    pub async fn monitor_blocks(&self) -> anyhow::Result<impl Stream<Item = StateChange>> {
-        let mut blocks = self.provider.subscribe_blocks().await?.into_stream();
-
-        Ok(stream! {
-            while let Some(header) = blocks.next().await {
-                let state = self.get_state_changes(header).await;
-
-                yield state;
-            }
-        })
-    }
-
     pub async fn get_state_changes(&self, block_header: Header) -> StateChange {
         let changes = self
             .provider

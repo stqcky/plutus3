@@ -81,10 +81,6 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV2Pool {
         <UniswapV2Pool as LiquidityPool<P>>::is_liquidity_valid(&self.0)
     }
 
-    fn token_addresses(&self) -> (Address, Address) {
-        <UniswapV2Pool as LiquidityPool<P>>::token_addresses(&self.0)
-    }
-
     async fn tokens_locked(&self, _provider: P) -> Result<(U256, U256), alloy::contract::Error> {
         <UniswapV2Pool as LiquidityPool<P>>::tokens_locked(&self.0, _provider).await
     }
@@ -97,8 +93,12 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV2Pool {
         <UniswapV2Pool as LiquidityPool<P>>::address(&self.0)
     }
 
-    fn tokens(&self) -> (ERC20, ERC20) {
-        <UniswapV2Pool as LiquidityPool<P>>::tokens(&self.0)
+    fn token0(&self) -> &ERC20 {
+        <UniswapV2Pool as LiquidityPool<P>>::token0(&self.0)
+    }
+
+    fn token1(&self) -> &ERC20 {
+        <UniswapV2Pool as LiquidityPool<P>>::token1(&self.0)
     }
 
     async fn verify_health(

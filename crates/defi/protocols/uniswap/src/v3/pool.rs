@@ -510,10 +510,6 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
             && sqrt_price_x96 < MAX_SQRT_RATIO - U256::from(1)
     }
 
-    fn token_addresses(&self) -> (Address, Address) {
-        (self.token0.address, self.token1.address)
-    }
-
     async fn tokens_locked(&self, provider: P) -> Result<(U256, U256), alloy::contract::Error> {
         Ok((
             self.token0.balance_of(self.address, &provider).await?,
@@ -529,8 +525,12 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
         self.address
     }
 
-    fn tokens(&self) -> (ERC20, ERC20) {
-        (self.token0.clone(), self.token1.clone())
+    fn token0(&self) -> &ERC20 {
+        &self.token0
+    }
+
+    fn token1(&self) -> &ERC20 {
+        &self.token1
     }
 
     async fn verify_health(
@@ -606,73 +606,6 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
                     hex::encode(slot.to_be_bytes::<32>()),
                     hex::encode(real_value.to_be_bytes::<32>()),
                     hex::encode(simulated_value.to_be_bytes::<32>())
-                );
-            }
-        }
-
-        let quoter = Quoter::new(provider.clone());
-        let mut evm = EVM::new_on_block(provider.clone(), block_number);
-
-        let mut pool = self.clone();
-
-        for amount in 1..100 {
-            let token0_out = pool
-                .simulate_swap(
-                    pool.token0.address,
-                    pool.token0.to_token_amount(amount as f64),
-                    block,
-                    provider.clone(),
-                )
-                .await;
-
-            let quoted_token0_out = quoter
-                .quote_exact_input_single_on_block(
-                    QuoteExactInputSingleParams {
-                        token_in: pool.token0.address,
-                        token_out: pool.token1.address,
-                        amount_in: pool.token0.to_token_amount(amount as f64),
-                        fee: pool.fee,
-                        sqrt_price_limit_x96: U160::from(MIN_SQRT_RATIO + U256::from(1)),
-                    },
-                    block_number.into(),
-                )
-                .await?
-                .amount_out;
-
-            if token0_out != quoted_token0_out {
-                panic!(
-                    "swap mismatch: token0 -> token1, pool = {}, amount = {amount}, quoted {} != {}",
-                    pool.address, quoted_token0_out, token0_out
-                );
-            }
-
-            let token1_out = pool
-                .simulate_swap(
-                    pool.token1.address,
-                    pool.token1.to_token_amount(amount as f64),
-                    block,
-                    provider.clone(),
-                )
-                .await;
-
-            let quoted_token1_out = quoter
-                .quote_exact_input_single_on_block(
-                    QuoteExactInputSingleParams {
-                        token_in: pool.token1.address,
-                        token_out: pool.token0.address,
-                        amount_in: pool.token1.to_token_amount(amount as f64),
-                        fee: pool.fee,
-                        sqrt_price_limit_x96: U160::from(MAX_SQRT_RATIO - U256::from(1)),
-                    },
-                    block_number.into(),
-                )
-                .await?
-                .amount_out;
-
-            if token1_out != quoted_token1_out {
-                panic!(
-                    "swap mismatch: token1 -> token0, pool = {}, amount = {amount}, quoted {} != {}",
-                    pool.address, quoted_token1_out, token1_out
                 );
             }
         }
@@ -834,13 +767,16 @@ mod tests {
                     .await;
 
                 let quoted_token1_out = quoter
-                    .quote_exact_input_single(QuoteExactInputSingleParams {
-                        token_in: pool.token1.address,
-                        token_out: pool.token0.address,
-                        amount_in: pool.token1.to_token_amount(amount as f64),
-                        fee: pool.fee,
-                        sqrt_price_limit_x96: U160::from(MAX_SQRT_RATIO - U256::from(1)),
-                    })
+                    .quote_exact_input_single_on_block(
+                        QuoteExactInputSingleParams {
+                            token_in: pool.token1.address,
+                            token_out: pool.token0.address,
+                            amount_in: pool.token1.to_token_amount(amount as f64),
+                            fee: pool.fee,
+                            sqrt_price_limit_x96: U160::from(MAX_SQRT_RATIO - U256::from(1)),
+                        },
+                        block,
+                    )
                     .await?
                     .amount_out;
 

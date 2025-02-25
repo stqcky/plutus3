@@ -32,8 +32,13 @@ pub trait LiquidityPool<P: Provider>: DynClone + Send + Sync {
 
     fn is_liquidity_valid(&self) -> bool;
 
-    fn token_addresses(&self) -> (Address, Address);
-    fn tokens(&self) -> (ERC20, ERC20);
+    fn token0(&self) -> &ERC20;
+    fn token1(&self) -> &ERC20;
+
+    fn tokens(&self) -> (&ERC20, &ERC20) {
+        (self.token0(), self.token1())
+    }
+
     async fn tokens_locked(&self, provider: P) -> Result<(U256, U256), alloy::contract::Error>;
 
     async fn verify_health(&self, provider: Arc<P>, block: BlockNumber) -> anyhow::Result<bool>;

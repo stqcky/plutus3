@@ -9,8 +9,8 @@ members = [
     "crates/defi/protocols/uniswap", 
     "crates/evm/evm", 
     "crates/evm/evm-core", 
-    "crates/evm/evm-procmacro", "crates/monitoring", 
-    "crates/storage",
+    "crates/evm/evm-procmacro", "crates/executor", "crates/monitoring", 
+    "crates/storage", "crates/tests",
     "crates/token-graph"
 ]
 
@@ -33,6 +33,9 @@ plutus-storage = { path = "crates/storage" }
 plutus-token-graph = { path = "crates/token-graph" }
 
 plutus-monitoring = { path = "crates/monitoring" }
+
+plutus-executor = { path = "crates/executor" }
+plutus-tests = { path = "creates/tests" }
 
 futures = "0.3.31"
 petgraph = "0.7.1"

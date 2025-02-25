@@ -1,9 +1,10 @@
+use futures::future;
 use rayon::prelude::*;
 use std::{sync::Arc, time::Instant};
 
 use alloy::{
     eips::BlockId,
-    primitives::{Address, U256, address},
+    primitives::{Address, U256, address, map::AddressSet},
     providers::{Provider, ProviderBuilder, RpcWithBlock},
     rpc::client::ClientBuilder,
 };
@@ -47,9 +48,9 @@ async fn main() -> anyhow::Result<()> {
         ),
     );
 
-    let block_number = provider.get_block_number().await?;
+    let start_block = provider.get_block_number().await?;
 
-    tracing::info!("startup block: {block_number}");
+    tracing::info!("startup block: {start_block}");
 
     let state_monitor = StateMonitor::new(provider.clone());
 
@@ -69,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     protocol_registry
-        .discover_and_store(block_number, &storage)
+        .discover_and_store(start_block, &storage)
         .await?;
 
     let pools = if UPDATE_CACHE {
@@ -78,7 +79,7 @@ async fn main() -> anyhow::Result<()> {
         let now = Instant::now();
 
         let filtered = protocol_registry
-            .get_filtered_pools(&storage, 2_000.0, block_number.into())
+            .get_filtered_pools(&storage, 2_000.0, start_block.into())
             .await?;
 
         protocol_registry
@@ -90,7 +91,7 @@ async fn main() -> anyhow::Result<()> {
         filtered
     } else {
         protocol_registry
-            .get_cached_filtered_pools(&storage, block_number.into())
+            .get_cached_filtered_pools(&storage, start_block.into())
             .await?
     };
 
@@ -99,41 +100,33 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("creating token graph");
     let now = Instant::now();
     let mut token_graph =
-        TokenGraph::new(pools, 0.001, block_number.into(), provider.clone()).await?;
+        TokenGraph::new(pools.clone(), 0.001, start_block.into(), provider.clone()).await?;
     tracing::info!("token graph created in {:?}", now.elapsed());
 
     let health_monitor = HealthMonitor::new(provider.clone());
     let mut last_health_check = Instant::now();
 
-    // let mut evm = EVM::new(provider.clone(), block_number);
-
-    // while let Some(block) = blocks.next().await {
     while let Some(state_change) = state_rx.recv().await {
-        let catching_up = if state_change.block_header.number == provider.get_block_number().await?
-        {
-            false
-        } else {
-            true
-        };
+        let current_block = state_change.block_header.number;
 
-        // tracing::info!(
-        //     "block {}{}",
-        //     state_change.block_header.number,
-        //     if catching_up { ", catching up" } else { "" }
-        // );
+        // let catching_up = current_block < provider.get_block_number().await?;
+        let catching_up = false;
 
-        let block: BlockId = state_change.block_header.number.into();
+        tracing::info!(
+            "block {current_block}{}",
+            if catching_up { ", catching up" } else { "" }
+        );
+        let current_block: BlockId = current_block.into();
+
+        let affected_tokens = token_graph
+            .apply_state(state_change.changes, provider.clone(), current_block)
+            .await;
 
         if catching_up {
-            token_graph
-                .apply_state(state_change.changes, provider.clone(), block.into())
-                .await;
             continue;
         }
 
-        let affected_tokens = token_graph
-            .apply_state(state_change.changes, provider.clone(), block.into())
-            .await;
+        tracing::info!("affected_tokens: {affected_tokens:#?}");
 
         if last_health_check.elapsed().as_secs() >= 2 {
             health_monitor
@@ -142,77 +135,96 @@ async fn main() -> anyhow::Result<()> {
             last_health_check = Instant::now();
         }
 
-        let opportunities = token_graph.find_opportunities(affected_tokens).await;
+        let opportunities = token_graph
+            .find_uncalculated_opportunities(affected_tokens)
+            .await;
+
         tracing::info!("found {} opportunities", opportunities.len());
 
-        for mut opportunity in opportunities {
-            // simulate_opportunity(&mut opportunity, &mut evm, 1.0, &protocol_registry);
+        let semaphore = Arc::new(Semaphore::new(20));
+        let tasks: Vec<_> = opportunities
+            .into_iter()
+            .map(|opportunity| {
+                let provider = provider.clone();
+                let semaphore = semaphore.clone();
+                let protocol_registry = protocol_registry.clone();
 
-            let Some(x) = optimize_profit(&mut opportunity, block, provider.clone()).await else {
-                tracing::error!("failed to optimize profit");
-                continue;
-            };
+                tokio::spawn(async move {
+                    let _permit = semaphore.acquire_owned().await.unwrap();
 
-            // tracing::info!("optimized x: {x}");
+                    check_opportunity(opportunity, &protocol_registry, current_block, provider)
+                        .await
+                })
+            })
+            .collect();
 
-            let now = Instant::now();
-            let profit =
-                calculate_opportunity(&mut opportunity, x, block, provider.clone()).await - x;
-            // tracing::info!("calculate opportunity: {:?}", now.elapsed());
+        let mut opportunities: Vec<_> = future::try_join_all(tasks)
+            .await?
+            .into_iter()
+            .filter_map(|x| x)
+            .collect();
 
-            if profit <= 0.0 {
-                tracing::error!("profit <= 0");
-                continue;
-            }
+        opportunities.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
 
-            let now = Instant::now();
-            let usd_profit = get_usd_value(
-                &opportunity[0].token0,
-                profit,
+        if let Some(mut best_opportunity) = opportunities.get(0) {
+            let x = best_opportunity.1;
+            let mut steps = best_opportunity.2.clone();
+
+            simulate_opportunity(
+                &mut steps,
+                x,
                 &protocol_registry,
-                block,
+                current_block,
                 provider.clone(),
             )
             .await;
-            // tracing::info!("get usd value: {:?}", now.elapsed());
-
-            if usd_profit >= 0.01 {
-                // tracing::info!("optimized amount in:");
-                simulate_opportunity(
-                    &mut opportunity,
-                    x,
-                    &protocol_registry,
-                    block,
-                    provider.clone(),
-                )
-                .await;
-                println!("");
-            } else {
-                tracing::error!("usd profit < 0.01 ({usd_profit})");
-            }
         }
-
-        // let semaphore = Arc::new(Semaphore::new(12));
-        // let tasks: Vec<_> = opportunities
-        //     .into_iter()
-        //     .map(|mut opportunity| {
-        //         let provider = provider.clone();
-        //         let protocol_registry = protocol_registry.clone();
-        //         let semaphore = semaphore.clone();
-        //
-        //         tokio::spawn(async move {
-        //             let _permit = semaphore.acquire_owned().await.unwrap();
-        //             let mut evm = EVM::new_on_block(provider, block);
-        //
-        //             let now = Instant::now();
-        //         })
-        //     })
-        //     .collect();
-        //
-        // futures::future::try_join_all(tasks).await?;
     }
 
     Ok(())
+}
+
+async fn check_opportunity<P: Provider + Clone + std::fmt::Debug>(
+    mut opportunity: Vec<Step<P>>,
+    protocol_registry: &ProtocolRegistry<P>,
+    block: BlockId,
+    provider: P,
+) -> Option<(f64, f64, Vec<Step<P>>)> {
+    let x = optimize_profit(&mut opportunity, block, provider.clone()).await?;
+
+    let profit = calculate_opportunity(&mut opportunity, x, block, provider.clone()).await - x;
+
+    if profit <= 0.0 {
+        return None;
+    }
+
+    let now = Instant::now();
+    let usd_profit = get_usd_value(
+        &opportunity[0].token0,
+        profit,
+        &protocol_registry,
+        block,
+        provider.clone(),
+    )
+    .await;
+    // tracing::info!("get usd value: {:?}", now.elapsed());
+
+    if usd_profit >= 0.01 {
+        // tracing::info!("optimized amount in:");
+        // simulate_opportunity(
+        //     &mut opportunity,
+        //     x,
+        //     &protocol_registry,
+        //     block,
+        //     provider.clone(),
+        // )
+        // .await;
+        // println!("");
+        Some((usd_profit, x, opportunity))
+    } else {
+        None
+        // tracing::error!("usd profit < 0.01 ({usd_profit})");
+    }
 }
 
 async fn calculate_roi<P: Provider + Clone>(
@@ -307,8 +319,12 @@ async fn simulate_opportunity<P: Provider + std::fmt::Debug + Clone>(
     amount
 }
 
-// fn optimize_profit<P: Provider>(opportunity: &mut [Step<P>], evm: &mut EVM<P>) -> Option<f64> {
-//     let mut f = |x| calculate_opportunity(opportunity, evm, x) - x;
+// async fn optimize_profit<P: Provider + Clone>(
+//     opportunity: &mut [Step<P>],
+//     block: BlockId,
+//     provider: P,
+// ) -> Option<f64> {
+//     let mut f = async |x| calculate_opportunity(opportunity, x, block, provider.clone()).await - x;
 //
 //     let mut left = 0.0;
 //     let mut right = 1000.0;
@@ -319,7 +335,7 @@ async fn simulate_opportunity<P: Provider + std::fmt::Debug + Clone>(
 //         let left_third = left + (right - left) / 3.0;
 //         let right_third = right - (right - left) / 3.0;
 //
-//         if f(left_third) < f(right_third) {
+//         if f(left_third).await < f(right_third).await {
 //             left = left_third;
 //         } else {
 //             right = right_third;
@@ -340,7 +356,7 @@ async fn optimize_profit<P: Provider + Clone>(
     let mut lower_bound = 0.0;
     let mut upper_bound = 1000.0;
 
-    let max_iter = 50;
+    let max_iter = 70;
 
     for _ in 0..max_iter {
         let middle = (lower_bound + upper_bound) / 2.0;
