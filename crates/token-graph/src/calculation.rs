@@ -62,6 +62,7 @@ pub async fn calculate_opportunity<P: Provider + Clone>(
     provider: P,
 ) -> Option<CalculatedOpportunity<P>> {
     let first_token_decimals = opportunity[0].token0.decimals;
+
     let amount_in = optimize_profit(
         &mut opportunity,
         first_token_decimals,
@@ -114,7 +115,7 @@ async fn optimize_profit<P: Provider + Clone>(
     };
 
     let mut lower_bound = uint!(0_U256);
-    let mut upper_bound = uint!(100_U256) * uint!(10_U256).pow(U256::from(decimals));
+    let mut upper_bound = uint!(1000_U256) * uint!(10_U256).pow(U256::from(decimals));
 
     let max_iter = 50;
 

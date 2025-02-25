@@ -8,6 +8,7 @@ plutus-defi-protocols-protocol.workspace = true
 plutus-defi-protocols-uniswap.workspace = true
 plutus-defi-protocols-pancakeswap.workspace = true
 plutus-defi-erc20.workspace = true
+plutus-defi-price-oracle.workspace = true
 
 plutus-blockchain.workspace = true
 plutus-evm.workspace = true

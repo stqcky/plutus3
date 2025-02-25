@@ -1,0 +1,16 @@
+[package]
+name = "plutus-defi-price-oracle"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+plutus-defi-protocols-uniswap.workspace = true
+plutus-defi-protocols-protocol.workspace = true
+plutus-defi-erc20.workspace = true
+
+alloy.workspace = true
+parking_lot.workspace = true
+lru = "0.13.0"
+anyhow.workspace = true
+futures.workspace = true
+tokio.workspace = true

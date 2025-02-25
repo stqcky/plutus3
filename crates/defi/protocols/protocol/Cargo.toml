@@ -17,4 +17,4 @@ tokio.workspace = true
 tracing.workspace = true
 dyn-clone.workspace = true
 futures.workspace = true
-parking_lot = "0.12.3"
+parking_lot.workspace = true

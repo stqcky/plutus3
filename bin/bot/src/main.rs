@@ -1,4 +1,5 @@
 use futures::future;
+use plutus_defi_price_oracle::PriceOracle;
 use rayon::prelude::*;
 use std::{sync::Arc, time::Instant};
 
@@ -103,6 +104,8 @@ async fn main() -> anyhow::Result<()> {
         TokenGraph::new(pools.clone(), 0.001, start_block.into(), provider.clone()).await?;
     tracing::info!("token graph created in {:?}", now.elapsed());
 
+    let price_oracle = PriceOracle::new(provider.clone()).await?;
+
     let health_monitor = HealthMonitor::new(provider.clone());
     let mut last_health_check = Instant::now();
 
@@ -126,8 +129,6 @@ async fn main() -> anyhow::Result<()> {
             continue;
         }
 
-        tracing::info!("affected_tokens: {affected_tokens:#?}");
-
         if last_health_check.elapsed().as_secs() >= 2 {
             health_monitor
                 .check_health(state_change.block_header.number, token_graph.pools.clone());
@@ -135,243 +136,33 @@ async fn main() -> anyhow::Result<()> {
             last_health_check = Instant::now();
         }
 
+        let now = Instant::now();
         let opportunities = token_graph
-            .find_uncalculated_opportunities(affected_tokens)
-            .await;
+            .find_opportunities(affected_tokens.clone(), current_block, provider.clone())
+            .await?;
+        tracing::info!("found opportunities in {:?}", now.elapsed());
 
-        tracing::info!("found {} opportunities", opportunities.len());
+        let mut opportunities_with_usd = vec![];
 
-        let semaphore = Arc::new(Semaphore::new(20));
-        let tasks: Vec<_> = opportunities
-            .into_iter()
-            .map(|opportunity| {
-                let provider = provider.clone();
-                let semaphore = semaphore.clone();
-                let protocol_registry = protocol_registry.clone();
+        for opportunity in opportunities {
+            let usd_price = price_oracle
+                .clone()
+                .get_price(&opportunity.base_token)
+                .await;
+            let usd_value = usd_price * opportunity.base_token.to_float_amount(opportunity.profit);
 
-                tokio::spawn(async move {
-                    let _permit = semaphore.acquire_owned().await.unwrap();
+            opportunities_with_usd.push((opportunity, usd_value));
+        }
 
-                    check_opportunity(opportunity, &protocol_registry, current_block, provider)
-                        .await
-                })
-            })
-            .collect();
+        opportunities_with_usd.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
-        let mut opportunities: Vec<_> = future::try_join_all(tasks)
-            .await?
-            .into_iter()
-            .filter_map(|x| x)
-            .collect();
-
-        opportunities.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-
-        if let Some(mut best_opportunity) = opportunities.get(0) {
-            let x = best_opportunity.1;
-            let mut steps = best_opportunity.2.clone();
-
-            simulate_opportunity(
-                &mut steps,
-                x,
-                &protocol_registry,
-                current_block,
-                provider.clone(),
-            )
-            .await;
+        if let Some(best_opportunity) = opportunities_with_usd.get(0) {
+            tracing::info!("{}", best_opportunity.0);
+            tracing::info!("${}", best_opportunity.1);
         }
     }
 
     Ok(())
-}
-
-async fn check_opportunity<P: Provider + Clone + std::fmt::Debug>(
-    mut opportunity: Vec<Step<P>>,
-    protocol_registry: &ProtocolRegistry<P>,
-    block: BlockId,
-    provider: P,
-) -> Option<(f64, f64, Vec<Step<P>>)> {
-    let x = optimize_profit(&mut opportunity, block, provider.clone()).await?;
-
-    let profit = calculate_opportunity(&mut opportunity, x, block, provider.clone()).await - x;
-
-    if profit <= 0.0 {
-        return None;
-    }
-
-    let now = Instant::now();
-    let usd_profit = get_usd_value(
-        &opportunity[0].token0,
-        profit,
-        &protocol_registry,
-        block,
-        provider.clone(),
-    )
-    .await;
-    // tracing::info!("get usd value: {:?}", now.elapsed());
-
-    if usd_profit >= 0.01 {
-        // tracing::info!("optimized amount in:");
-        // simulate_opportunity(
-        //     &mut opportunity,
-        //     x,
-        //     &protocol_registry,
-        //     block,
-        //     provider.clone(),
-        // )
-        // .await;
-        // println!("");
-        Some((usd_profit, x, opportunity))
-    } else {
-        None
-        // tracing::error!("usd profit < 0.01 ({usd_profit})");
-    }
-}
-
-async fn calculate_roi<P: Provider + Clone>(
-    opportunity: &mut [Step<P>],
-    block: BlockId,
-    provider: P,
-) -> f64 {
-    let token0 = opportunity[0].token0.clone();
-
-    let start_amount = token0.to_token_amount(1.0);
-    let mut amount = start_amount;
-
-    for step in opportunity {
-        amount = step
-            .pool
-            .simulate_swap(step.token0.address, amount, block, provider.clone())
-            .await;
-    }
-
-    f64::from(amount) / f64::from(start_amount)
-}
-
-async fn calculate_opportunity<P: Provider + Clone>(
-    opportunity: &mut [Step<P>],
-    amount: f64,
-    block: BlockId,
-    provider: P,
-) -> f64 {
-    let token0 = opportunity[0].token0.clone();
-
-    let mut amount = token0.to_token_amount(amount);
-
-    for step in opportunity {
-        let amount_out = step
-            .pool
-            .simulate_swap(step.token0.address, amount, block, provider.clone())
-            .await;
-        amount = amount_out;
-    }
-
-    token0.to_float_amount(amount)
-}
-
-async fn simulate_opportunity<P: Provider + std::fmt::Debug + Clone>(
-    opportunity: &mut [Step<P>],
-    start_amount: f64,
-    registry: &ProtocolRegistry<P>,
-    block: BlockId,
-    provider: P,
-) -> U256 {
-    tracing::info!("opportunity:");
-    let token_start_amount = opportunity[0].token0.to_token_amount(start_amount);
-    let mut amount = token_start_amount;
-
-    for step in &mut *opportunity {
-        let amount_out = step
-            .pool
-            .simulate_swap(step.token0.address, amount, block, provider.clone())
-            .await;
-
-        tracing::info!(
-            "{} ({}) -> {} ({}) on {}",
-            step.token0,
-            step.token0.to_float_amount(amount),
-            step.token1,
-            step.token1.to_float_amount(amount_out),
-            step.pool.identifier(),
-            // step.pool.address()
-        );
-        amount = amount_out;
-    }
-
-    if amount >= token_start_amount {
-        let profit = opportunity[0]
-            .token0
-            .to_float_amount(amount - token_start_amount);
-
-        let usd_profit = get_usd_value(
-            &opportunity[0].token0,
-            profit,
-            registry,
-            block,
-            provider.clone(),
-        )
-        .await;
-
-        tracing::info!("profit: {profit} (${usd_profit})");
-    } else {
-        tracing::info!("no profit");
-    }
-
-    amount
-}
-
-// async fn optimize_profit<P: Provider + Clone>(
-//     opportunity: &mut [Step<P>],
-//     block: BlockId,
-//     provider: P,
-// ) -> Option<f64> {
-//     let mut f = async |x| calculate_opportunity(opportunity, x, block, provider.clone()).await - x;
-//
-//     let mut left = 0.0;
-//     let mut right = 1000.0;
-//
-//     let max_iter = 70;
-//
-//     for _ in 0..max_iter {
-//         let left_third = left + (right - left) / 3.0;
-//         let right_third = right - (right - left) / 3.0;
-//
-//         if f(left_third).await < f(right_third).await {
-//             left = left_third;
-//         } else {
-//             right = right_third;
-//         }
-//     }
-//
-//     Some((left + right) / 2.0)
-// }
-
-async fn optimize_profit<P: Provider + Clone>(
-    opportunity: &mut [Step<P>],
-    block: BlockId,
-    provider: P,
-) -> Option<f64> {
-    let mut get_profit =
-        async |x| calculate_opportunity(opportunity, x, block, provider.clone()).await - x;
-
-    let mut lower_bound = 0.0;
-    let mut upper_bound = 1000.0;
-
-    let max_iter = 70;
-
-    for _ in 0..max_iter {
-        let middle = (lower_bound + upper_bound) / 2.0;
-
-        let lower_profit = get_profit(lower_bound + (middle - lower_bound) / 2.0).await;
-        let upper_profit = get_profit(middle + (upper_bound - middle) / 2.0).await;
-
-        if lower_profit > upper_profit {
-            upper_bound = middle;
-        } else {
-            lower_bound = middle;
-        }
-    }
-
-    Some((lower_bound + upper_bound) / 2.0)
 }
 
 pub const USDT: Address = address!("Fd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9");

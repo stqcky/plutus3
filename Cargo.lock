@@ -360,7 +360,7 @@ dependencies = [
  "dashmap",
  "futures",
  "futures-utils-wasm",
- "lru",
+ "lru 0.12.5",
  "parking_lot",
  "pin-project",
  "reqwest",
@@ -1086,6 +1086,7 @@ dependencies = [
  "futures",
  "plutus-blockchain",
  "plutus-defi-erc20",
+ "plutus-defi-price-oracle",
  "plutus-defi-protocols-pancakeswap",
  "plutus-defi-protocols-protocol",
  "plutus-defi-protocols-uniswap",
@@ -2489,6 +2490,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lru"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "227748d55f2f0ab4735d87fd623798cb6b664512fe979705f829c9f81c934465"
+dependencies = [
+ "hashbrown 0.15.2",
+]
+
+[[package]]
 name = "matchers"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2975,6 +2985,21 @@ dependencies = [
  "anyhow",
  "derive_more 2.0.1",
  "plutus-evm",
+]
+
+[[package]]
+name = "plutus-defi-price-oracle"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "futures",
+ "lru 0.13.0",
+ "parking_lot",
+ "plutus-defi-erc20",
+ "plutus-defi-protocols-protocol",
+ "plutus-defi-protocols-uniswap",
+ "tokio",
 ]
 
 [[package]]

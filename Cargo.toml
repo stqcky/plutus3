@@ -4,7 +4,7 @@ members = [
     "bin/bot", 
     "bin/playground", 
     "crates/blockchain",
-    "crates/defi/erc20", "crates/defi/protocols/pancakeswap", 
+    "crates/defi/erc20", "crates/defi/price-oracle", "crates/defi/protocols/pancakeswap", 
     "crates/defi/protocols/protocol", 
     "crates/defi/protocols/uniswap", 
     "crates/evm/evm", 
@@ -23,6 +23,7 @@ plutus-defi-erc20 = { path = "crates/defi/erc20" }
 plutus-defi-protocols-protocol = { path = "crates/defi/protocols/protocol" }
 plutus-defi-protocols-uniswap = { path = "crates/defi/protocols/uniswap" }
 plutus-defi-protocols-pancakeswap = { path = "crates/defi/protocols/pancakeswap" }
+plutus-defi-price-oracle = { path = "crates/defi/price-oracle" }
 
 plutus-evm = { path = "crates/evm/evm" }
 plutus-evm-core = { path = "crates/evm/evm-core" }
@@ -56,6 +57,7 @@ strum = "0.27.0"
 dyn-clone = "1.0.18"
 hex = "0.4.3"
 rayon = "1.10.0"
+parking_lot = "0.12.3"
 
 proc-macro2 = "1.0.93"
 quote = "1.0.38"
@@ -63,3 +65,6 @@ syn = "2.0.98"
 
 revm = { git = "https://github.com/bluealloy/revm/" }
 revm-database = { git = "https://github.com/bluealloy/revm/" }
+
+[profile.release]
+debug = true
