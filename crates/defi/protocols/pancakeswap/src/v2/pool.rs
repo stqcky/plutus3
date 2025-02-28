@@ -117,6 +117,18 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV2Pool {
         <UniswapV2Pool as LiquidityPool<P>>::update_with_provider(&mut self.0, provider, block)
             .await
     }
+
+    fn create_payload(
+        &self,
+        recipient: Address,
+        token_in: Address,
+        amount: U256,
+        extra: Vec<u8>,
+    ) -> Vec<u8> {
+        <UniswapV2Pool as LiquidityPool<P>>::create_payload(
+            &self.0, recipient, token_in, amount, extra,
+        )
+    }
 }
 
 #[cfg(test)]

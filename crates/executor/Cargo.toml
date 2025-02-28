@@ -8,3 +8,7 @@ alloy = { workspace = true, features = ["full", "node-bindings"] }
 plutus-token-graph.workspace = true
 anyhow.workspace = true
 plutus-defi-protocols-uniswap.workspace = true
+plutus-defi-protocols-protocol.workspace = true
+plutus-defi-erc20.workspace = true
+plutus-evm.workspace = true
+hex.workspace = true

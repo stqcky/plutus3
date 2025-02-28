@@ -42,6 +42,14 @@ pub trait LiquidityPool<P: Provider>: DynClone + Send + Sync {
     async fn tokens_locked(&self, provider: P) -> Result<(U256, U256), alloy::contract::Error>;
 
     async fn verify_health(&self, provider: Arc<P>, block: BlockNumber) -> anyhow::Result<bool>;
+
+    fn create_payload(
+        &self,
+        recipient: Address,
+        token_in: Address,
+        amount: U256,
+        extra: Vec<u8>,
+    ) -> Vec<u8>;
 }
 
 dyn_clone::clone_trait_object!(<P: Provider> LiquidityPool<P>);

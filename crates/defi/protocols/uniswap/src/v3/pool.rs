@@ -1,3 +1,4 @@
+use alloy::sol_types::{SolCall, SolType};
 use std::sync::Arc;
 
 use IUniswapV3Pool::{
@@ -640,6 +641,41 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
         self.storage.clear();
 
         Ok(())
+    }
+
+    fn create_payload(
+        &self,
+        recipient: Address,
+        token_in: Address,
+        amount: U256,
+        extra: Vec<u8>,
+    ) -> Vec<u8> {
+        type DataPayload = sol! { tuple(address, address, uint24, bytes) };
+
+        let zero_for_one = token_in == self.token0.address;
+
+        let (token_in, token_out) = if zero_for_one {
+            (self.token0.address, self.token1.address)
+        } else {
+            (self.token1.address, self.token0.address)
+        };
+
+        let price_limit = U160::from(if zero_for_one {
+            MIN_SQRT_RATIO + U256::from(1)
+        } else {
+            MAX_SQRT_RATIO - U256::from(1)
+        });
+
+        let data = DataPayload::abi_encode_sequence(&(token_in, token_out, self.fee, extra));
+
+        IUniswapV3Pool::swapCall::new((
+            recipient,
+            zero_for_one,
+            I256::from_raw(amount),
+            price_limit,
+            data.into(),
+        ))
+        .abi_encode()
     }
 }
 

@@ -1,5 +1,6 @@
 use futures::future;
 use plutus_defi_price_oracle::PriceOracle;
+use plutus_executor::Executor;
 use rayon::prelude::*;
 use std::{sync::Arc, time::Instant};
 
@@ -110,10 +111,10 @@ async fn main() -> anyhow::Result<()> {
     let mut last_health_check = Instant::now();
 
     while let Some(state_change) = state_rx.recv().await {
+        let now = Instant::now();
         let current_block = state_change.block_header.number;
 
-        // let catching_up = current_block < provider.get_block_number().await?;
-        let catching_up = false;
+        let catching_up = current_block < provider.get_block_number().await?;
 
         tracing::info!(
             "block {current_block}{}",
@@ -136,11 +137,10 @@ async fn main() -> anyhow::Result<()> {
             last_health_check = Instant::now();
         }
 
-        let now = Instant::now();
         let opportunities = token_graph
             .find_opportunities(affected_tokens.clone(), current_block, provider.clone())
             .await?;
-        tracing::info!("found opportunities in {:?}", now.elapsed());
+        // tracing::info!("found opportunities in {:?}", now.elapsed());
 
         let mut opportunities_with_usd = vec![];
 
@@ -159,7 +159,13 @@ async fn main() -> anyhow::Result<()> {
         if let Some(best_opportunity) = opportunities_with_usd.get(0) {
             tracing::info!("{}", best_opportunity.0);
             tracing::info!("${}", best_opportunity.1);
+
+            let executor = Executor::new(state_change.block_header.number).await?;
+
+            executor.execute(best_opportunity.to_owned().0).await?;
         }
+
+        tracing::info!("processed block in {:?}", now.elapsed());
     }
 
     Ok(())

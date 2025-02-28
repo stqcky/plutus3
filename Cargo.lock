@@ -2963,6 +2963,7 @@ dependencies = [
  "plutus-defi-protocols-protocol",
  "plutus-defi-protocols-uniswap",
  "plutus-evm",
+ "plutus-executor",
  "plutus-monitoring",
  "plutus-storage",
  "plutus-token-graph",
@@ -3097,7 +3098,11 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "hex",
+ "plutus-defi-erc20",
+ "plutus-defi-protocols-protocol",
  "plutus-defi-protocols-uniswap",
+ "plutus-evm",
  "plutus-token-graph",
 ]
 
