@@ -70,7 +70,7 @@ impl<P: Provider + 'static> DiscoverableProtocol<P> for SushiSwapV2Protocol {
 }
 
 impl<P: Provider + 'static> ProtocolFactory<P> for SushiSwapV2Protocol {
-    const IDENTIFIER: &str = "pancakeswap_v2";
+    const IDENTIFIER: &str = "sushiswap_v2";
 
     fn new(chain_id: ChainId) -> Option<Self> {
         let factory_address = *FACTORY_ADDRESS.get(&chain_id)?;

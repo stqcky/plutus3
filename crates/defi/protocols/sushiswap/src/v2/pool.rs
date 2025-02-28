@@ -86,7 +86,7 @@ impl<P: Provider + 'static> LiquidityPool<P> for SushiSwapV2Pool {
     }
 
     fn identifier(&self) -> &'static str {
-        "pancakeswap_v2"
+        "sushiswap_v2"
     }
 
     fn address(&self) -> Address {
