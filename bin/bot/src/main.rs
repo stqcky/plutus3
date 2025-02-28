@@ -4,11 +4,13 @@ use std::{sync::Arc, time::Instant};
 
 use alloy::{
     eips::BlockId,
+    network::EthereumWallet,
     providers::{Provider, ProviderBuilder},
     rpc::client::ClientBuilder,
+    signers::local::PrivateKeySigner,
 };
 use dotenvy_macro::dotenv;
-use plutus_defi_protocols_pancakeswap::v2::PancakeSwapV2Protocol;
+use plutus_defi_protocols_pancakeswap::{v2::PancakeSwapV2Protocol, v3::PancakeSwapV3Protocol};
 use plutus_defi_protocols_protocol::registry::ProtocolRegistry;
 use plutus_defi_protocols_uniswap::{v2::UniswapV2Protocol, v3::UniswapV3Protocol};
 use plutus_monitoring::{StateChange, StateMonitor, health::HealthMonitor};
@@ -36,13 +38,19 @@ const UPDATE_CACHE: bool = false;
 async fn main() -> anyhow::Result<()> {
     init_tracing();
 
+    let signer: PrivateKeySigner = dotenv!("PRIVATE_KEY").parse().unwrap();
+    let wallet = EthereumWallet::new(signer);
+
     let provider = Arc::new(
-        ProviderBuilder::new().with_recommended_fillers().on_client(
-            ClientBuilder::default()
-                .ipc(dotenv!("IPC_PROVIDER").to_string().into())
-                .await?
-                .boxed(),
-        ),
+        ProviderBuilder::new()
+            .with_recommended_fillers()
+            .wallet(wallet)
+            .on_client(
+                ClientBuilder::default()
+                    .ipc(dotenv!("IPC_PROVIDER").to_string().into())
+                    .await?
+                    .boxed(),
+            ),
     );
 
     let start_block = provider.get_block_number().await?;
@@ -63,7 +71,8 @@ async fn main() -> anyhow::Result<()> {
             .await?
             .with::<UniswapV2Protocol>()?
             .with::<UniswapV3Protocol>()?
-            .with::<PancakeSwapV2Protocol>()?,
+            .with::<PancakeSwapV2Protocol>()?
+            .with::<PancakeSwapV3Protocol>()?,
     );
 
     protocol_registry
@@ -76,7 +85,7 @@ async fn main() -> anyhow::Result<()> {
         let now = Instant::now();
 
         let filtered = protocol_registry
-            .get_filtered_pools(&storage, 2_000.0, start_block.into())
+            .get_filtered_pools(&storage, 500.0, start_block.into())
             .await?;
 
         protocol_registry
@@ -104,6 +113,8 @@ async fn main() -> anyhow::Result<()> {
 
     let health_monitor = HealthMonitor::new(provider.clone());
     let mut last_health_check = Instant::now();
+
+    let executor = Executor::new(provider.clone()).await?;
 
     while let Some(state_change) = state_rx.recv().await {
         let now = Instant::now();
@@ -135,6 +146,11 @@ async fn main() -> anyhow::Result<()> {
         let opportunities = token_graph
             .find_opportunities(affected_tokens.clone(), current_block, provider.clone())
             .await?;
+
+        if opportunities.len() == 0 {
+            tracing::warn!("no opportunities");
+        }
+
         // tracing::info!("found opportunities in {:?}", now.elapsed());
 
         let mut opportunities_with_usd = vec![];
@@ -151,16 +167,20 @@ async fn main() -> anyhow::Result<()> {
 
         opportunities_with_usd.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
-        if let Some(best_opportunity) = opportunities_with_usd.get(0) {
-            // tracing::info!("{}", best_opportunity.0);
-            tracing::info!("${}", best_opportunity.1);
+        if let Some(best_opportunity) = opportunities_with_usd.get_mut(0) {
+            let opportunity = &best_opportunity.0;
+            let usd_value = best_opportunity.1;
 
-            let executor = Executor::new(state_change.block_header.number).await?;
+            tracing::info!("${}", usd_value);
+            if usd_value >= 0.011 {
+                tracing::info!("{}", opportunity);
+                executor.execute(opportunity).await?;
 
-            executor.execute(best_opportunity.to_owned().0).await?;
+                // panic!("yo");
+            }
         }
 
-        // tracing::info!("processed block in {:?}", now.elapsed());
+        tracing::info!("processed block in {:?}", now.elapsed());
     }
 
     Ok(())

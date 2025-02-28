@@ -5,7 +5,7 @@ members = [
     "bin/playground", 
     "crates/blockchain",
     "crates/defi/erc20", "crates/defi/price-oracle", "crates/defi/protocols/pancakeswap", 
-    "crates/defi/protocols/protocol", 
+    "crates/defi/protocols/protocol", "crates/defi/protocols/sushiswap", 
     "crates/defi/protocols/uniswap", 
     "crates/evm/evm", 
     "crates/evm/evm-core", 
@@ -68,3 +68,9 @@ revm-database = { git = "https://github.com/bluealloy/revm/" }
 
 [profile.release]
 debug = true
+
+[profile.perf]
+inherits = "release"
+codegen-units = 1
+lto = "fat"
+panic = "abort"

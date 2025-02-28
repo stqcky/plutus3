@@ -3017,6 +3017,7 @@ dependencies = [
  "plutus-defi-protocols-protocol",
  "plutus-defi-protocols-uniswap",
  "plutus-evm",
+ "strum 0.27.0",
  "tokio",
  "uniswap_v3_math",
 ]
@@ -3038,6 +3039,25 @@ dependencies = [
  "plutus-storage",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "plutus-defi-protocols-sushiswap"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "async-trait",
+ "dotenvy_macro",
+ "hashbrown 0.15.2",
+ "lazy_static",
+ "plutus-defi-erc20",
+ "plutus-defi-protocols-protocol",
+ "plutus-defi-protocols-uniswap",
+ "plutus-evm",
+ "strum 0.27.0",
+ "tokio",
+ "uniswap_v3_math",
 ]
 
 [[package]]
@@ -3098,6 +3118,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "dotenvy_macro",
  "hex",
  "plutus-defi-erc20",
  "plutus-defi-protocols-protocol",

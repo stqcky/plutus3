@@ -16,6 +16,7 @@ use alloy::{
     transports::BoxTransport,
 };
 use contract::IExecutor::{self, IExecutorInstance};
+use dotenvy_macro::dotenv;
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_uniswap::v3::pool::IUniswapV3Pool::swapCall;
 use plutus_evm::EVM;
@@ -24,23 +25,9 @@ use plutus_token_graph::calculation::{CalculatedOpportunity, CalculatedOpportuni
 
 pub mod contract;
 
-type FakeProvider = FillProvider<
-    JoinFill<
-        JoinFill<
-            Identity,
-            JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-        >,
-        WalletFiller<EthereumWallet>,
-    >,
-    AnvilProvider<RootProvider<BoxTransport>, BoxTransport>,
-    BoxTransport,
-    Ethereum,
->;
-
-pub struct Executor {
-    provider: Arc<FakeProvider>,
-    contract: IExecutorInstance<BoxTransport, Arc<FakeProvider>>,
-    block: BlockNumber,
+pub struct Executor<P> {
+    provider: P,
+    contract: IExecutorInstance<BoxTransport, P>,
 }
 
 pub struct ExecutionStep {
@@ -48,40 +35,17 @@ pub struct ExecutionStep {
     data: Vec<u8>,
 }
 
-impl Executor {
-    pub async fn new(block: BlockNumber) -> anyhow::Result<Self> {
-        let provider = Arc::new(
-            ProviderBuilder::default()
-                .with_recommended_fillers()
-                .on_anvil_with_wallet_and_config(|anvil| {
-                    anvil.fork("http://localhost:8547").fork_block_number(block)
-                }),
+impl<P: Provider + Clone> Executor<P> {
+    pub async fn new(provider: P) -> anyhow::Result<Self> {
+        let contract = IExecutor::new(
+            dotenv!("EXECUTOR_DEPLOYMENT_ADDRESS").parse().unwrap(),
+            provider.clone(),
         );
 
-        println!("signer: {}", provider.default_signer_address());
-
-        let contract = IExecutor::deploy(provider.clone()).await?;
-
-        println!("contract address: {}", contract.address());
-
-        Ok(Self {
-            provider,
-            contract,
-            block,
-        })
+        Ok(Self { provider, contract })
     }
 
-    pub async fn execute<P: Provider>(
-        &self,
-        opportunity: CalculatedOpportunity<P>,
-    ) -> anyhow::Result<()> {
-        let base = opportunity.base_token;
-
-        let user = self.provider.default_signer_address();
-
-        // let before = base.balance_of(user, self.provider.clone()).await?;
-        // println!("base balance before: {before}");
-
+    pub async fn execute(&self, opportunity: &CalculatedOpportunity<P>) -> anyhow::Result<()> {
         let other_legs = &opportunity.legs[1..];
         let other_steps = other_legs
             .iter()
@@ -104,61 +68,23 @@ impl Executor {
 
         let first_step = self.create_execution_step(&opportunity.legs[0], extra);
 
-        // println!("{}", first_step.target);
-        // println!("{}", hex::encode(&first_step.data));
+        println!("target: {}", first_step.target);
+        println!("{}", hex::encode(&first_step.data));
 
-        // let mut evm = EVM::new_on_block(self.provider.clone(), self.block);
-        //
-        // let res = evm.call(
-        //     *self.contract.address(),
-        //     executeCall::new((first_step.target, first_step.data.into())),
-        // );
-        //
-        // match res {
-        //     Ok(_) => println!("ok"),
-        //     Err(err) => {
-        //         println!("{err:#?}");
-        //     }
-        // }
-
-        // let result = self
-        //     .contract
-        //     .execute1695833(first_step.target, first_step.data.into())
-        //     .from(address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"))
-        //     .block(self.block.into())
-        //     .call()
-        //     .await;
-        //
-        // match result {
-        //     Err(err) => println!("{err:#?}"),
-        //     Ok(a) => println!("ok"),
-        // };
-
-        // println!("{receipt:#?}");
         let receipt = self
             .contract
             .execute1695833(first_step.target, first_step.data.into())
-            .from(address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"))
-            .block(self.block.into())
             .send()
             .await?
             .get_receipt()
             .await;
 
-        // println!("{receipt:#?}");
-
-        let after = base
-            .balance_of(
-                address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
-                self.provider.clone(),
-            )
-            .await?;
-        println!("base balance after: {after}");
+        println!("{receipt:#?}");
 
         Ok(())
     }
 
-    fn create_execution_step<P: Provider>(
+    fn create_execution_step(
         &self,
         leg: &CalculatedOpportunityLeg<P>,
         extra: Vec<u8>,

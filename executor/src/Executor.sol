@@ -78,4 +78,12 @@ contract Executor {
     function pancakeCall(address, uint256, uint256, bytes calldata data) external {
         _processSwap(data);
     }
+
+    function pancakeV3SwapCallback(int256, int256, bytes calldata data) external {
+        _processSwap(data);
+    }
+
+    function algebraSwapCallback(int256, int256, bytes calldata data) external {
+        _processSwap(data);
+    }
 }
