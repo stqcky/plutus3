@@ -2,15 +2,17 @@ use alloy::{
     eips::BlockId,
     primitives::{Address, BlockNumber, ChainId},
     providers::Provider,
+    sol,
 };
 use async_trait::async_trait;
 use dyn_clone::DynClone;
-use plutus_evm::{EVM, errors::EvmCallError};
 use pool::LiquidityPool;
 
 pub mod filtering;
 pub mod pool;
 pub mod registry;
+
+pub type SwapDataPayload = sol! { tuple(address, address, uint256, bytes) };
 
 #[async_trait]
 pub trait Protocol<P: Provider>: Send + Sync + DynClone {

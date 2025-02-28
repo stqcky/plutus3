@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use alloy::network::{Ethereum, EthereumWallet};
+use alloy::network::{Ethereum, EthereumWallet, NetworkWallet};
 use alloy::primitives::{Address, BlockNumber, address};
 use alloy::providers::fillers::{FillProvider, WalletFiller};
 use alloy::providers::{RootProvider, WalletProvider};
@@ -15,7 +15,7 @@ use alloy::{
     },
     transports::BoxTransport,
 };
-use contract::IExecutor::{self, IExecutorInstance, executeCall};
+use contract::IExecutor::{self, IExecutorInstance};
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_uniswap::v3::pool::IUniswapV3Pool::swapCall;
 use plutus_evm::EVM;
@@ -75,13 +75,12 @@ impl Executor {
         &self,
         opportunity: CalculatedOpportunity<P>,
     ) -> anyhow::Result<()> {
-        let base =
-            ERC20::new_with_provider(opportunity.base_token.address, self.provider.clone()).await?;
+        let base = opportunity.base_token;
 
-        let before = base
-            .balance_of(*self.contract.address(), self.provider.clone())
-            .await?;
-        println!("base balance before: {before}");
+        let user = self.provider.default_signer_address();
+
+        // let before = base.balance_of(user, self.provider.clone()).await?;
+        // println!("base balance before: {before}");
 
         let other_legs = &opportunity.legs[1..];
         let other_steps = other_legs
@@ -105,8 +104,8 @@ impl Executor {
 
         let first_step = self.create_execution_step(&opportunity.legs[0], extra);
 
-        println!("{}", first_step.target);
-        println!("{}", hex::encode(&first_step.data));
+        // println!("{}", first_step.target);
+        // println!("{}", hex::encode(&first_step.data));
 
         // let mut evm = EVM::new_on_block(self.provider.clone(), self.block);
         //
@@ -122,34 +121,37 @@ impl Executor {
         //     }
         // }
 
-        let result = self
-            .contract
-            .execute(first_step.target, first_step.data.into())
-            .from(address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"))
-            .block(self.block.into())
-            .call()
-            .await;
-
-        match result {
-            Err(err) => println!("{err:#?}"),
-            Ok(a) => println!("{}", a.data),
-        };
-
-        // println!("{receipt:#?}");
-        // let receipt = self
+        // let result = self
         //     .contract
-        //     .execute(first_step.target, first_step.data.into())
+        //     .execute1695833(first_step.target, first_step.data.into())
         //     .from(address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"))
         //     .block(self.block.into())
-        //     .send()
-        //     .await?
-        //     .get_receipt()
+        //     .call()
         //     .await;
         //
+        // match result {
+        //     Err(err) => println!("{err:#?}"),
+        //     Ok(a) => println!("ok"),
+        // };
+
+        // println!("{receipt:#?}");
+        let receipt = self
+            .contract
+            .execute1695833(first_step.target, first_step.data.into())
+            .from(address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"))
+            .block(self.block.into())
+            .send()
+            .await?
+            .get_receipt()
+            .await;
+
         // println!("{receipt:#?}");
 
         let after = base
-            .balance_of(*self.contract.address(), self.provider.clone())
+            .balance_of(
+                address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+                self.provider.clone(),
+            )
             .await?;
         println!("base balance after: {after}");
 

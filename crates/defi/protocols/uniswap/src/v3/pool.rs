@@ -18,7 +18,7 @@ use alloy::{
 use anyhow::bail;
 use async_trait::async_trait;
 use plutus_defi_erc20::ERC20;
-use plutus_defi_protocols_protocol::pool::LiquidityPool;
+use plutus_defi_protocols_protocol::{SwapDataPayload, pool::LiquidityPool};
 use plutus_evm::{
     EVM,
     errors::EvmCallError,
@@ -650,15 +650,7 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
         amount: U256,
         extra: Vec<u8>,
     ) -> Vec<u8> {
-        type DataPayload = sol! { tuple(address, address, uint24, bytes) };
-
         let zero_for_one = token_in == self.token0.address;
-
-        let (token_in, token_out) = if zero_for_one {
-            (self.token0.address, self.token1.address)
-        } else {
-            (self.token1.address, self.token0.address)
-        };
 
         let price_limit = U160::from(if zero_for_one {
             MIN_SQRT_RATIO + U256::from(1)
@@ -666,7 +658,7 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
             MAX_SQRT_RATIO - U256::from(1)
         });
 
-        let data = DataPayload::abi_encode_sequence(&(token_in, token_out, self.fee, extra));
+        let data = SwapDataPayload::abi_encode_sequence(&(self.address, token_in, amount, extra));
 
         IUniswapV3Pool::swapCall::new((
             recipient,

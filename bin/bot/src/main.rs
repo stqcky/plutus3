@@ -1,25 +1,19 @@
-use futures::future;
 use plutus_defi_price_oracle::PriceOracle;
-use plutus_executor::Executor;
-use rayon::prelude::*;
 use std::{sync::Arc, time::Instant};
 
 use alloy::{
     eips::BlockId,
-    primitives::{Address, U256, address, map::AddressSet},
-    providers::{Provider, ProviderBuilder, RpcWithBlock},
+    providers::{Provider, ProviderBuilder},
     rpc::client::ClientBuilder,
 };
 use dotenvy_macro::dotenv;
-use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_pancakeswap::v2::PancakeSwapV2Protocol;
 use plutus_defi_protocols_protocol::registry::ProtocolRegistry;
 use plutus_defi_protocols_uniswap::{v2::UniswapV2Protocol, v3::UniswapV3Protocol};
-use plutus_evm::EVM;
 use plutus_monitoring::{StateChange, StateMonitor, health::HealthMonitor};
 use plutus_storage::Storage;
-use plutus_token_graph::{Step, TokenGraph};
-use tokio::sync::{Semaphore, mpsc};
+use plutus_token_graph::TokenGraph;
+use tokio::sync::mpsc;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
@@ -160,60 +154,13 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("{}", best_opportunity.0);
             tracing::info!("${}", best_opportunity.1);
 
-            let executor = Executor::new(state_change.block_header.number).await?;
-
-            executor.execute(best_opportunity.to_owned().0).await?;
+            // let executor = Executor::new(state_change.block_header.number).await?;
+            //
+            // executor.execute(best_opportunity.to_owned().0).await?;
         }
 
         tracing::info!("processed block in {:?}", now.elapsed());
     }
 
     Ok(())
-}
-
-pub const USDT: Address = address!("Fd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9");
-pub const WETH: Address = address!("82aF49447D8a07e3bd95BD0d56f35241523fBab1");
-pub const USDC: Address = address!("af88d065e77c8cc2239327c5edb3a432268e5831");
-
-async fn get_usd_value<P: Provider + std::fmt::Debug + Clone>(
-    token: &ERC20,
-    amount: f64,
-    registry: &ProtocolRegistry<P>,
-    block: BlockId,
-    provider: P,
-) -> f64 {
-    let usdt = ERC20::new_with_provider(USDT, provider.clone())
-        .await
-        .unwrap();
-    let usdc = ERC20::new_with_provider(USDC, provider.clone())
-        .await
-        .unwrap();
-    let weth = ERC20::new_with_provider(WETH, provider.clone())
-        .await
-        .unwrap();
-
-    let token_amount = token.to_token_amount(amount);
-
-    let usdt_value = usdt.to_float_amount(
-        registry
-            .get_token_value(token.address, USDT, token_amount, block)
-            .await
-            .unwrap(),
-    );
-
-    let usdc_value = usdc.to_float_amount(
-        registry
-            .get_token_value(token.address, usdc.address, token_amount, block)
-            .await
-            .unwrap(),
-    );
-
-    let weth_value = weth.to_float_amount(
-        registry
-            .get_token_value(token.address, weth.address, token_amount, block)
-            .await
-            .unwrap(),
-    ) * 2723.39;
-
-    usdt_value.max(usdc_value).max(weth_value)
 }

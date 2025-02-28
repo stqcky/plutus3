@@ -13,7 +13,7 @@ use alloy::{
 use anyhow::bail;
 use async_trait::async_trait;
 use plutus_defi_erc20::ERC20;
-use plutus_defi_protocols_protocol::pool::LiquidityPool;
+use plutus_defi_protocols_protocol::{SwapDataPayload, pool::LiquidityPool};
 use plutus_evm::{EVM, errors::EvmCallError, storage::FromStorageValue};
 
 sol!(
@@ -206,15 +206,7 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
         amount: U256,
         extra: Vec<u8>,
     ) -> Vec<u8> {
-        type DataPayload = sol! { tuple(address, address, bytes) };
-
         let zero_for_one = token_in == self.token0.address;
-
-        let (token_in, token_out) = if zero_for_one {
-            (self.token0.address, self.token1.address)
-        } else {
-            (self.token1.address, self.token0.address)
-        };
 
         let (amount0_out, amount1_out) = if zero_for_one {
             (U256::ZERO, amount)
@@ -222,7 +214,7 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
             (amount, U256::ZERO)
         };
 
-        let data = DataPayload::abi_encode(&(token_in, token_out, extra));
+        let data = SwapDataPayload::abi_encode_sequence(&(self.address, token_in, amount, extra));
 
         IUniswapV2Pool::swapCall::new((amount0_out, amount1_out, recipient, data.into()))
             .abi_encode()
