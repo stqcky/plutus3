@@ -1089,6 +1089,7 @@ dependencies = [
  "plutus-defi-price-oracle",
  "plutus-defi-protocols-pancakeswap",
  "plutus-defi-protocols-protocol",
+ "plutus-defi-protocols-sushiswap",
  "plutus-defi-protocols-uniswap",
  "plutus-evm",
  "plutus-executor",

@@ -23,6 +23,7 @@ plutus-defi-erc20 = { path = "crates/defi/erc20" }
 plutus-defi-protocols-protocol = { path = "crates/defi/protocols/protocol" }
 plutus-defi-protocols-uniswap = { path = "crates/defi/protocols/uniswap" }
 plutus-defi-protocols-pancakeswap = { path = "crates/defi/protocols/pancakeswap" }
+plutus-defi-protocols-sushiswap = { path = "crates/defi/protocols/sushiswap" }
 plutus-defi-price-oracle = { path = "crates/defi/price-oracle" }
 
 plutus-evm = { path = "crates/evm/evm" }

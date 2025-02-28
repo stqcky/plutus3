@@ -1,4 +1,5 @@
 use plutus_defi_price_oracle::PriceOracle;
+use plutus_defi_protocols_sushiswap::v2::SushiSwapV2Protocol;
 use plutus_executor::Executor;
 use std::{sync::Arc, time::Instant};
 
@@ -72,7 +73,8 @@ async fn main() -> anyhow::Result<()> {
             .with::<UniswapV2Protocol>()?
             .with::<UniswapV3Protocol>()?
             .with::<PancakeSwapV2Protocol>()?
-            .with::<PancakeSwapV3Protocol>()?,
+            .with::<PancakeSwapV3Protocol>()?
+            .with::<SushiSwapV2Protocol>()?,
     );
 
     protocol_registry
