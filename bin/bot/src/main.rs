@@ -1,4 +1,5 @@
 use plutus_defi_price_oracle::PriceOracle;
+use plutus_executor::Executor;
 use std::{sync::Arc, time::Instant};
 
 use alloy::{
@@ -151,15 +152,15 @@ async fn main() -> anyhow::Result<()> {
         opportunities_with_usd.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
         if let Some(best_opportunity) = opportunities_with_usd.get(0) {
-            tracing::info!("{}", best_opportunity.0);
+            // tracing::info!("{}", best_opportunity.0);
             tracing::info!("${}", best_opportunity.1);
 
-            // let executor = Executor::new(state_change.block_header.number).await?;
-            //
-            // executor.execute(best_opportunity.to_owned().0).await?;
+            let executor = Executor::new(state_change.block_header.number).await?;
+
+            executor.execute(best_opportunity.to_owned().0).await?;
         }
 
-        tracing::info!("processed block in {:?}", now.elapsed());
+        // tracing::info!("processed block in {:?}", now.elapsed());
     }
 
     Ok(())

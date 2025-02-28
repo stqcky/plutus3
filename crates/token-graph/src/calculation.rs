@@ -3,7 +3,7 @@ use std::fmt::Display;
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::pool::LiquidityPool;
 use plutus_evm::{
-    alloy::{eips::BlockId, providers::Provider, uint},
+    alloy::{eips::BlockId, providers::Provider, rpc::types::simulate, uint},
     revm::primitives::{I256, U256},
 };
 
@@ -137,6 +137,47 @@ async fn optimize_profit<P: Provider + Clone>(
     }
 
     (lower_bound + upper_bound) / two
+}
+
+async fn optimize_profit_f<P: Provider + Clone>(
+    opportunity: &mut Opportunity<P>,
+    decimals: u8,
+    block: BlockId,
+    provider: P,
+) -> U256 {
+    let base = opportunity[0].token0.clone();
+
+    let mut get_profit = async |x| {
+        base.to_float_amount(
+            simulate_opportunity(
+                opportunity,
+                base.to_token_amount(x),
+                block,
+                provider.clone(),
+            )
+            .await,
+        ) - x
+    };
+
+    let mut lower_bound = 0.0;
+    let mut upper_bound = 1000.0;
+
+    let max_iter = 50;
+
+    for _ in 0..max_iter {
+        let middle = (lower_bound + upper_bound) / 2.0;
+
+        let lower_profit = get_profit(lower_bound + (middle - lower_bound) / 2.0).await;
+        let upper_profit = get_profit(middle + (upper_bound - middle) / 2.0).await;
+
+        if lower_profit > upper_profit {
+            upper_bound = middle;
+        } else {
+            lower_bound = middle;
+        }
+    }
+
+    base.to_token_amount((lower_bound + upper_bound) / 2.0)
 }
 
 async fn simulate_opportunity<P: Provider + Clone>(

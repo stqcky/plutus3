@@ -35,7 +35,7 @@ impl<P: Provider + Clone + 'static> HealthMonitor<P> {
                     .inspect_err(|err| tracing::error!("health check failed: {err}"))?;
             }
 
-            tracing::warn!("health check in {:?}", now.elapsed());
+            // tracing::warn!("health check in {:?}", now.elapsed());
             Ok(())
         })
     }
