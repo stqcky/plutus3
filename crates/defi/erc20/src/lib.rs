@@ -1,4 +1,4 @@
-use IERC20::{IERC20Instance, balanceOfCall, decimalsCall, symbolCall};
+use IERC20::{IERC20Instance, decimalsCall, symbolCall};
 use derive_more::Display;
 use plutus_evm::{
     EVM,

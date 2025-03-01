@@ -18,3 +18,4 @@ hashbrown.workspace = true
 tokio.workspace = true
 uniswap_v3_math.workspace = true
 strum = { workspace = true, features = ["derive"] }
+parking_lot.workspace = true

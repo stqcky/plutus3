@@ -5,17 +5,10 @@ use alloy::{
 };
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
-use plutus_defi_protocols_uniswap::{
-    v2::factory::{IUniswapV2Factory::PairCreated, UniswapV2Factory},
-    v3::{
-        factory::{
-            IUniswapV3Factory::{IUniswapV3FactoryInstance, PoolCreated},
-            UniswapV3Factory,
-        },
-        fee::FeeAmount,
-    },
+use plutus_defi_protocols_uniswap::v3::{
+    factory::IUniswapV3Factory::{IUniswapV3FactoryInstance, PoolCreated},
+    fee::FeeAmount,
 };
-use plutus_evm::{EVM, errors::EvmCallError};
 
 use super::pool::SushiSwapV3Pool;
 

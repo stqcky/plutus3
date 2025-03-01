@@ -1,15 +1,15 @@
 use alloy::{eips::BlockId, primitives::U256, providers::Provider, uint};
-use plutus_evm::{EVM, mapping::SolidityMapping, storage::SmartContractStorage};
-use uniswap_v3_math::{bit_math, error::UniswapV3MathError, tick_bitmap::position};
+use plutus_evm::{mapping::SolidityMapping, storage::SmartContractStorage};
+use uniswap_v3_math::{bit_math, tick_bitmap::position};
 
 const U256_1: U256 = uint!(1U256);
 
 pub async fn next_initialized_tick_within_one_word<P: Provider, const SLOT: u128>(
-    tick_bitmap: &mut SolidityMapping<i16, U256, SLOT>,
+    tick_bitmap: &SolidityMapping<i16, U256, SLOT>,
     tick: i32,
     tick_spacing: i32,
     lte: bool,
-    storage: &mut SmartContractStorage,
+    storage: &SmartContractStorage,
     block: BlockId,
     provider: P,
 ) -> anyhow::Result<(i32, bool)> {

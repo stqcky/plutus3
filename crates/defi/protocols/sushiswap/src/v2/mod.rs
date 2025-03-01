@@ -2,6 +2,8 @@ pub mod factory;
 pub mod pool;
 pub mod router;
 
+use std::sync::Arc;
+
 use alloy::{
     eips::BlockId,
     primitives::{Address, BlockNumber, ChainId},
@@ -26,14 +28,14 @@ impl<P: Provider + 'static> Protocol<P> for SushiSwapV2Protocol {
         token0: Address,
         token1: Address,
         provider: P,
-    ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, alloy::contract::Error> {
+    ) -> Result<Vec<Arc<dyn LiquidityPool<P>>>, alloy::contract::Error> {
         let pool = self
             .factory
             .get_pool_with_provider(token0, token1, &provider)
             .await?;
 
         if let Some(pool) = pool {
-            Ok(vec![Box::new(pool)])
+            Ok(vec![Arc::new(pool)])
         } else {
             Ok(vec![])
         }
@@ -44,8 +46,8 @@ impl<P: Provider + 'static> Protocol<P> for SushiSwapV2Protocol {
         address: Address,
         provider: P,
         block: BlockId,
-    ) -> Result<Box<dyn LiquidityPool<P>>, alloy::contract::Error> {
-        Ok(Box::new(
+    ) -> Result<Arc<dyn LiquidityPool<P>>, alloy::contract::Error> {
+        Ok(Arc::new(
             SushiSwapV2Pool::new_with_provider(address, provider, block).await?,
         ))
     }

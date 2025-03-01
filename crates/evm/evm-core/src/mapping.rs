@@ -7,7 +7,7 @@ use alloy::{
 use revm::primitives::{I256, U256};
 use revm_database::BlockId;
 
-use crate::{EVM, storage::SmartContractStorage};
+use crate::storage::SmartContractStorage;
 
 #[derive(Debug, Clone, Copy)]
 pub struct SolidityMapping<K, V, const SLOT: u128, const VALUE_SLOT_SIZE: usize = 1> {
@@ -28,8 +28,8 @@ where
     }
 
     pub async fn get<P: Provider>(
-        &mut self,
-        storage: &mut SmartContractStorage,
+        &self,
+        storage: &SmartContractStorage,
         k: &K,
         block: BlockId,
         provider: P,

@@ -1,14 +1,12 @@
-use IUniswapV2Factory::{IUniswapV2FactoryInstance, PairCreated, getPairCall};
+use IUniswapV2Factory::{IUniswapV2FactoryInstance, PairCreated};
 use alloy::{
     eips::BlockId,
     primitives::{Address, BlockNumber, ChainId, address},
     providers::Provider,
     sol,
-    sol_types::SolCall as _,
 };
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
-use plutus_evm::{EVM, errors::EvmCallError};
 
 use super::pool::UniswapV2Pool;
 
@@ -33,24 +31,6 @@ pub struct UniswapV2Factory {
 impl UniswapV2Factory {
     pub fn new(address: Address) -> Self {
         Self { address }
-    }
-
-    pub fn get_pool<P: Provider>(
-        &self,
-        token0: Address,
-        token1: Address,
-        evm: &mut EVM<P>,
-    ) -> Result<Option<UniswapV2Pool>, EvmCallError<P>> {
-        let address = evm
-            .call(self.address, getPairCall::new((token0, token1)))?
-            .output
-            ._0;
-
-        if address.is_zero() {
-            Ok(None)
-        } else {
-            Ok(Some(UniswapV2Pool::new(address, evm)?))
-        }
     }
 
     pub async fn get_pool_with_provider<P: Provider>(

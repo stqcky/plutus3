@@ -13,7 +13,6 @@ use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::pool::LiquidityPool;
 use plutus_defi_protocols_uniswap::v3::pool::UniswapV3Pool;
 
-#[derive(Clone)]
 pub struct SushiSwapV3Pool(pub(super) UniswapV3Pool);
 
 impl SushiSwapV3Pool {
@@ -45,24 +44,18 @@ impl DerefMut for SushiSwapV3Pool {
 #[async_trait]
 impl<P: Provider + 'static> LiquidityPool<P> for SushiSwapV3Pool {
     async fn simulate_swap(
-        &mut self,
+        &self,
         token: Address,
         amount: U256,
         block: BlockId,
         provider: P,
     ) -> U256 {
-        <UniswapV3Pool as LiquidityPool<P>>::simulate_swap(
-            &mut self.0,
-            token,
-            amount,
-            block,
-            provider,
-        )
-        .await
+        <UniswapV3Pool as LiquidityPool<P>>::simulate_swap(&self.0, token, amount, block, provider)
+            .await
     }
 
-    fn apply_storage_changes(&mut self, changes: hashbrown::HashMap<U256, U256>) {
-        <UniswapV3Pool as LiquidityPool<P>>::apply_storage_changes(&mut self.0, changes);
+    fn apply_storage_changes(&self, changes: hashbrown::HashMap<U256, U256>) {
+        <UniswapV3Pool as LiquidityPool<P>>::apply_storage_changes(&self.0, changes);
     }
 
     fn is_liquidity_valid(&self) -> bool {
@@ -98,12 +91,11 @@ impl<P: Provider + 'static> LiquidityPool<P> for SushiSwapV3Pool {
     }
 
     async fn update_with_provider(
-        &mut self,
+        &self,
         provider: P,
         block: BlockId,
     ) -> Result<(), alloy::contract::Error> {
-        <UniswapV3Pool as LiquidityPool<P>>::update_with_provider(&mut self.0, provider, block)
-            .await
+        <UniswapV3Pool as LiquidityPool<P>>::update_with_provider(&self.0, provider, block).await
     }
 
     fn create_payload(

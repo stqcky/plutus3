@@ -12,3 +12,4 @@ thiserror.workspace = true
 anyhow.workspace = true
 derive_more = { workspace = true, features = ["full"] }
 hashbrown.workspace = true
+parking_lot.workspace = true

@@ -4,6 +4,8 @@ pub mod pool;
 pub mod quoter;
 pub mod tick_bitmap;
 
+use std::sync::Arc;
+
 use alloy::{
     eips::BlockId,
     primitives::{Address, BlockNumber, ChainId},
@@ -15,7 +17,6 @@ use fee::FeeAmount;
 use plutus_defi_protocols_protocol::{
     DiscoverableProtocol, Protocol, ProtocolFactory, pool::LiquidityPool,
 };
-use plutus_evm::{EVM, errors::EvmCallError};
 use pool::UniswapV3Pool;
 use strum::IntoEnumIterator as _;
 
@@ -31,8 +32,8 @@ impl<P: Provider + 'static> Protocol<P> for UniswapV3Protocol {
         token0: Address,
         token1: Address,
         provider: P,
-    ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, alloy::contract::Error> {
-        let mut pools: Vec<Box<dyn LiquidityPool<P>>> = vec![];
+    ) -> Result<Vec<Arc<dyn LiquidityPool<P>>>, alloy::contract::Error> {
+        let mut pools: Vec<Arc<dyn LiquidityPool<P>>> = vec![];
 
         for fee in FeeAmount::iter() {
             let Some(pool) = self
@@ -43,7 +44,7 @@ impl<P: Provider + 'static> Protocol<P> for UniswapV3Protocol {
                 continue;
             };
 
-            pools.push(Box::new(pool));
+            pools.push(Arc::new(pool));
         }
 
         Ok(pools)
@@ -54,8 +55,8 @@ impl<P: Provider + 'static> Protocol<P> for UniswapV3Protocol {
         address: Address,
         provider: P,
         block: BlockId,
-    ) -> Result<Box<dyn LiquidityPool<P>>, alloy::contract::Error> {
-        Ok(Box::new(
+    ) -> Result<Arc<dyn LiquidityPool<P>>, alloy::contract::Error> {
+        Ok(Arc::new(
             UniswapV3Pool::new_with_provider(address, provider, block).await?,
         ))
     }

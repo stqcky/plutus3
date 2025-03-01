@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use alloy::{
     eips::BlockId,
     primitives::{Address, BlockNumber, ChainId},
@@ -21,14 +23,14 @@ pub trait Protocol<P: Provider>: Send + Sync + DynClone {
         token0: Address,
         token1: Address,
         provider: P,
-    ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, alloy::contract::Error>;
+    ) -> Result<Vec<Arc<dyn LiquidityPool<P>>>, alloy::contract::Error>;
 
     async fn create_pool_with_provider(
         &self,
         address: Address,
         provider: P,
         block: BlockId,
-    ) -> Result<Box<dyn LiquidityPool<P>>, alloy::contract::Error>;
+    ) -> Result<Arc<dyn LiquidityPool<P>>, alloy::contract::Error>;
 }
 
 dyn_clone::clone_trait_object!(<P: Provider> Protocol<P>);

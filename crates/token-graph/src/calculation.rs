@@ -1,25 +1,23 @@
-use std::fmt::Display;
+use std::{fmt::Display, sync::Arc};
 
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::pool::LiquidityPool;
 use plutus_evm::{
-    alloy::{eips::BlockId, providers::Provider, rpc::types::simulate, uint},
+    alloy::{eips::BlockId, providers::Provider, uint},
     revm::primitives::{I256, U256},
 };
 
 use crate::Opportunity;
 
-#[derive(Clone)]
 pub struct CalculatedOpportunityLeg<P: Provider> {
     pub token_in: ERC20,
     pub token_out: ERC20,
-    pub pool: Box<dyn LiquidityPool<P>>,
+    pub pool: Arc<dyn LiquidityPool<P>>,
 
     pub amount_in: U256,
     pub amount_out: U256,
 }
 
-#[derive(Clone)]
 pub struct CalculatedOpportunity<P: Provider> {
     pub base_token: ERC20,
     pub profit: U256,
@@ -74,7 +72,7 @@ pub async fn calculate_opportunity<P: Provider + Clone>(
     let mut legs = vec![];
     let mut amount = amount_in;
 
-    for mut leg in opportunity {
+    for leg in opportunity {
         let amount_out = leg
             .pool
             .simulate_swap(leg.token0.address, amount, block, provider.clone())
@@ -149,46 +147,46 @@ async fn optimize_profit<P: Provider + Clone>(
     (lower_bound + upper_bound) / two
 }
 
-async fn optimize_profit_f<P: Provider + Clone>(
-    opportunity: &mut Opportunity<P>,
-    decimals: u8,
-    block: BlockId,
-    provider: P,
-) -> U256 {
-    let base = opportunity[0].token0.clone();
-
-    let mut get_profit = async |x| {
-        base.to_float_amount(
-            simulate_opportunity(
-                opportunity,
-                base.to_token_amount(x),
-                block,
-                provider.clone(),
-            )
-            .await,
-        ) - x
-    };
-
-    let mut lower_bound = 0.0;
-    let mut upper_bound = 1000.0;
-
-    let max_iter = 50;
-
-    for _ in 0..max_iter {
-        let middle = (lower_bound + upper_bound) / 2.0;
-
-        let lower_profit = get_profit(lower_bound + (middle - lower_bound) / 2.0).await;
-        let upper_profit = get_profit(middle + (upper_bound - middle) / 2.0).await;
-
-        if lower_profit > upper_profit {
-            upper_bound = middle;
-        } else {
-            lower_bound = middle;
-        }
-    }
-
-    base.to_token_amount((lower_bound + upper_bound) / 2.0)
-}
+// async fn optimize_profit_f<P: Provider + Clone>(
+//     opportunity: &mut Opportunity<P>,
+//     decimals: u8,
+//     block: BlockId,
+//     provider: P,
+// ) -> U256 {
+//     let base = opportunity[0].token0.clone();
+//
+//     let mut get_profit = async |x| {
+//         base.to_float_amount(
+//             simulate_opportunity(
+//                 opportunity,
+//                 base.to_token_amount(x),
+//                 block,
+//                 provider.clone(),
+//             )
+//             .await,
+//         ) - x
+//     };
+//
+//     let mut lower_bound = 0.0;
+//     let mut upper_bound = 1000.0;
+//
+//     let max_iter = 50;
+//
+//     for _ in 0..max_iter {
+//         let middle = (lower_bound + upper_bound) / 2.0;
+//
+//         let lower_profit = get_profit(lower_bound + (middle - lower_bound) / 2.0).await;
+//         let upper_profit = get_profit(middle + (upper_bound - middle) / 2.0).await;
+//
+//         if lower_profit > upper_profit {
+//             upper_bound = middle;
+//         } else {
+//             lower_bound = middle;
+//         }
+//     }
+//
+//     base.to_token_amount((lower_bound + upper_bound) / 2.0)
+// }
 
 async fn simulate_opportunity<P: Provider + Clone>(
     opportunity: &mut Opportunity<P>,

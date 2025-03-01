@@ -11,8 +11,7 @@ use alloy::{
         },
     },
 };
-use async_stream::stream;
-use futures::{Stream, StreamExt as _};
+use futures::StreamExt as _;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use tokio::sync::mpsc::Sender;

@@ -2,6 +2,8 @@ pub mod factory;
 pub mod pool;
 pub mod quoter;
 
+use std::sync::Arc;
+
 use alloy::{
     eips::BlockId,
     primitives::{Address, BlockNumber, ChainId},
@@ -28,8 +30,8 @@ impl<P: Provider + 'static> Protocol<P> for PancakeSwapV3Protocol {
         token0: Address,
         token1: Address,
         provider: P,
-    ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, alloy::contract::Error> {
-        let mut pools: Vec<Box<dyn LiquidityPool<P>>> = vec![];
+    ) -> Result<Vec<Arc<dyn LiquidityPool<P>>>, alloy::contract::Error> {
+        let mut pools: Vec<Arc<dyn LiquidityPool<P>>> = vec![];
 
         for fee in FeeAmount::iter() {
             let Some(pool) = self
@@ -40,7 +42,7 @@ impl<P: Provider + 'static> Protocol<P> for PancakeSwapV3Protocol {
                 continue;
             };
 
-            pools.push(Box::new(pool));
+            pools.push(Arc::new(pool));
         }
 
         Ok(pools)
@@ -51,8 +53,8 @@ impl<P: Provider + 'static> Protocol<P> for PancakeSwapV3Protocol {
         address: Address,
         provider: P,
         block: BlockId,
-    ) -> Result<Box<dyn LiquidityPool<P>>, alloy::contract::Error> {
-        Ok(Box::new(
+    ) -> Result<Arc<dyn LiquidityPool<P>>, alloy::contract::Error> {
+        Ok(Arc::new(
             PancakeSwapV3Pool::new_with_provider(address, provider, block).await?,
         ))
     }

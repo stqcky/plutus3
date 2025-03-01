@@ -18,14 +18,12 @@ use plutus_monitoring::{StateChange, StateMonitor, health::HealthMonitor};
 use plutus_storage::Storage;
 use plutus_token_graph::TokenGraph;
 use tokio::sync::mpsc;
-use tracing::level_filters::LevelFilter;
-use tracing_subscriber::EnvFilter;
 
 fn init_tracing() {
-    let filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::DEBUG.into())
-        .from_env()
-        .unwrap();
+    // let filter = EnvFilter::builder()
+    //     .with_default_directive(LevelFilter::DEBUG.into())
+    //     .from_env()
+    //     .unwrap();
 
     tracing_subscriber::fmt()
         // .with_env_filter(filter)
@@ -120,7 +118,7 @@ async fn main() -> anyhow::Result<()> {
     let executor = Executor::new(provider.clone()).await?;
 
     while let Some(state_change) = state_rx.recv().await {
-        let now = Instant::now();
+        // let now = Instant::now();
         let current_block = state_change.block_header.number;
 
         let catching_up = current_block < provider.get_block_number().await?;
@@ -181,7 +179,7 @@ async fn main() -> anyhow::Result<()> {
             // if usd_value >= 0.011 {
             if usd_value >= 1.0 {
                 tracing::info!("{}", opportunity);
-                executor
+                _ = executor
                     .execute(opportunity)
                     .await
                     .inspect_err(|err| tracing::error!("{err}"));

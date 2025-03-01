@@ -18,3 +18,4 @@ strum = { workspace = true, features = ["derive"] }
 hex.workspace = true
 tokio.workspace = true
 dotenvy_macro.workspace = true
+parking_lot.workspace = true

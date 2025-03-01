@@ -10,7 +10,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use dotenvy_macro::dotenv;
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::{Protocol, ProtocolFactory, registry::ProtocolRegistry};
-use plutus_defi_protocols_uniswap::v3::{UniswapV3Protocol, factory::UniswapV3Factory};
+use plutus_defi_protocols_uniswap::v3::UniswapV3Protocol;
 use plutus_storage::Storage;
 use plutus_token_graph::{
     Opportunity, OpportunityLeg, TokenGraph, calculation::calculate_opportunity,

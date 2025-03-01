@@ -4,25 +4,22 @@ use futures::future;
 use hashbrown::{HashMap, HashSet};
 use rayon::prelude::*;
 use simple_cycles::{create_simple_cycles, dedup_cycles};
-use std::{cmp::Ordering, collections::BTreeMap, sync::Arc, time::Instant};
+use std::{sync::Arc, time::Instant};
 
 use petgraph::{
-    data::DataMap,
     dot::Dot,
     graph::{DiGraph, EdgeIndex, NodeIndex},
-    visit::{EdgeRef, IntoNodeReferences},
 };
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::pool::LiquidityPool;
 use plutus_evm::{
-    EVM,
-    alloy::{eips::BlockId, primitives::BlockNumber, providers::Provider},
+    alloy::{eips::BlockId, providers::Provider},
     revm::primitives::{
-        Address, U256, address,
+        Address, U256,
         map::{AddressMap, AddressSet},
     },
 };
-use tokio::{sync::Semaphore, task::spawn_blocking};
+use tokio::sync::Semaphore;
 
 pub mod calculation;
 pub mod simple_cycles;
@@ -30,14 +27,13 @@ pub mod simple_cycles;
 type InnerTokenGraph = DiGraph<ERC20, WeightedPool>;
 
 pub struct TokenGraph<P: Provider> {
-    pub pools: Vec<Box<dyn LiquidityPool<P>>>,
+    pub pools: Vec<Arc<dyn LiquidityPool<P>>>,
     pool_map: AddressMap<usize>,
 
     // just store addresses instead of whole objects?
     graph: InnerTokenGraph,
     pool_edge_map: AddressMap<(EdgeIndex, EdgeIndex)>,
-    token_map: AddressMap<NodeIndex>,
-
+    // token_map: AddressMap<NodeIndex>,
     cycles: AddressMap<Vec<Vec<NodeIndex>>>,
 
     amount: f64,
@@ -53,7 +49,7 @@ pub struct WeightedPool {
 pub struct OpportunityLeg<P: Provider> {
     pub token0: ERC20,
     pub token1: ERC20,
-    pub pool: Box<dyn LiquidityPool<P>>,
+    pub pool: Arc<dyn LiquidityPool<P>>,
 }
 
 pub type Step<P> = OpportunityLeg<P>;
@@ -68,7 +64,7 @@ impl std::fmt::Display for WeightedPool {
 
 impl<P: Provider + Clone + 'static> TokenGraph<P> {
     pub async fn new(
-        pools: Vec<Box<dyn LiquidityPool<P>>>,
+        pools: Vec<Arc<dyn LiquidityPool<P>>>,
         amount: f64,
         block: BlockId,
         provider: P,
@@ -108,7 +104,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             cycles: create_simple_cycles(&graph),
             graph,
             pool_edge_map,
-            token_map,
+            // token_map,
             amount,
         })
     }
@@ -149,7 +145,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             affected_tokens.insert(token1.address);
 
             self.graph.edge_weight_mut(edge0).unwrap().weight = calculate_edge(
-                pool.as_mut(),
+                pool.as_ref(),
                 &token0,
                 &token1,
                 self.amount,
@@ -161,7 +157,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             .weight;
 
             self.graph.edge_weight_mut(edge1).unwrap().weight = calculate_edge(
-                pool.as_mut(),
+                pool.as_ref(),
                 &token1,
                 &token0,
                 self.amount,
@@ -182,7 +178,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         block: BlockId,
         provider: P,
     ) -> anyhow::Result<Vec<CalculatedOpportunity<P>>> {
-        let now = Instant::now();
+        // let now = Instant::now();
         let opportunities = self.simple_finding(target_tokens);
 
         tracing::info!("opportunity count: {}", opportunities.len());
@@ -298,7 +294,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
     }
 }
 
-fn get_unique_tokens<P: Provider>(pools: &[Box<dyn LiquidityPool<P>>]) -> Vec<ERC20> {
+fn get_unique_tokens<P: Provider>(pools: &[Arc<dyn LiquidityPool<P>>]) -> Vec<ERC20> {
     let mut tokens = HashSet::new();
 
     for pool in pools {
@@ -320,7 +316,7 @@ fn init_nodes(tokens: Vec<ERC20>, graph: &mut InnerTokenGraph) -> AddressMap<Nod
 }
 
 async fn init_edges<P: Provider + Clone + 'static>(
-    pools: Vec<Box<dyn LiquidityPool<P>>>,
+    pools: Vec<Arc<dyn LiquidityPool<P>>>,
     amount: f64,
     graph: &mut InnerTokenGraph,
     token_map: &AddressMap<NodeIndex>,
@@ -331,7 +327,7 @@ async fn init_edges<P: Provider + Clone + 'static>(
 
     let tasks: Vec<_> = pools
         .into_iter()
-        .map(|mut pool| {
+        .map(|pool| {
             let provider = provider.clone();
 
             tokio::spawn(async move {
@@ -340,7 +336,7 @@ async fn init_edges<P: Provider + Clone + 'static>(
 
                 (
                     calculate_edge(
-                        pool.as_mut(),
+                        pool.as_ref(),
                         &token0,
                         &token1,
                         amount,
@@ -349,7 +345,7 @@ async fn init_edges<P: Provider + Clone + 'static>(
                     )
                     .await,
                     calculate_edge(
-                        pool.as_mut(),
+                        pool.as_ref(),
                         &token1,
                         &token0,
                         amount,
@@ -392,7 +388,7 @@ struct CalculatedEdge {
 }
 
 async fn calculate_edge<P: Provider>(
-    pool: &mut dyn LiquidityPool<P>,
+    pool: &dyn LiquidityPool<P>,
     token0: &ERC20,
     token1: &ERC20,
     amount: f64,

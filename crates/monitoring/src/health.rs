@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
 
 use alloy::{primitives::BlockNumber, providers::Provider};
 use plutus_defi_protocols_protocol::pool::LiquidityPool;
@@ -20,7 +20,7 @@ impl<P: Provider + Clone + 'static> HealthMonitor<P> {
     pub fn check_health(
         &self,
         block: BlockNumber,
-        pools: Vec<Box<dyn LiquidityPool<P>>>,
+        pools: Vec<Arc<dyn LiquidityPool<P>>>,
     ) -> JoinHandle<anyhow::Result<()>> {
         let provider = self.provider.clone();
         let semaphore = self.semaphore.clone();
@@ -28,7 +28,7 @@ impl<P: Provider + Clone + 'static> HealthMonitor<P> {
         tokio::spawn(async move {
             let _permit = semaphore.acquire_owned().await.unwrap();
 
-            let now = Instant::now();
+            // let now = Instant::now();
             for pool in pools {
                 pool.verify_health(provider.clone().into(), block)
                     .await

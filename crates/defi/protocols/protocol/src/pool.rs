@@ -6,26 +6,25 @@ use alloy::{
     providers::Provider,
 };
 use async_trait::async_trait;
-use dyn_clone::DynClone;
 use hashbrown::HashMap;
 use plutus_defi_erc20::ERC20;
 
 #[async_trait]
-pub trait LiquidityPool<P: Provider>: DynClone + Send + Sync {
+pub trait LiquidityPool<P: Provider>: Send + Sync {
     fn identifier(&self) -> &'static str;
     fn address(&self) -> Address;
 
     async fn simulate_swap(
-        &mut self,
+        &self,
         token: Address,
         amount: U256,
         block: BlockId,
         provider: P,
     ) -> U256;
 
-    fn apply_storage_changes(&mut self, changes: HashMap<U256, U256>);
+    fn apply_storage_changes(&self, changes: HashMap<U256, U256>);
     async fn update_with_provider(
-        &mut self,
+        &self,
         provider: P,
         block: BlockId,
     ) -> Result<(), alloy::contract::Error>;
@@ -51,5 +50,3 @@ pub trait LiquidityPool<P: Provider>: DynClone + Send + Sync {
         extra: Vec<u8>,
     ) -> Vec<u8>;
 }
-
-dyn_clone::clone_trait_object!(<P: Provider> LiquidityPool<P>);

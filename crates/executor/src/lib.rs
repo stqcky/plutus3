@@ -1,32 +1,14 @@
-use std::sync::Arc;
-
-use alloy::network::{Ethereum, EthereumWallet, NetworkWallet};
-use alloy::primitives::{Address, BlockNumber, address};
-use alloy::providers::fillers::{FillProvider, WalletFiller};
-use alloy::providers::{RootProvider, WalletProvider};
+use alloy::primitives::Address;
 use alloy::sol;
-use alloy::sol_types::{SolCall as _, SolType};
-use alloy::{
-    primitives::U256,
-    providers::{
-        Identity, Provider, ProviderBuilder,
-        fillers::{BlobGasFiller, ChainIdFiller, GasFiller, JoinFill, NonceFiller},
-        layers::AnvilProvider,
-    },
-    transports::BoxTransport,
-};
+use alloy::sol_types::SolType;
+use alloy::{providers::Provider, transports::BoxTransport};
 use contract::IExecutor::{self, IExecutorInstance};
 use dotenvy_macro::dotenv;
-use plutus_defi_erc20::ERC20;
-use plutus_defi_protocols_uniswap::v3::pool::IUniswapV3Pool::swapCall;
-use plutus_evm::EVM;
-use plutus_token_graph::OpportunityLeg;
 use plutus_token_graph::calculation::{CalculatedOpportunity, CalculatedOpportunityLeg};
 
 pub mod contract;
 
 pub struct Executor<P> {
-    provider: P,
     contract: IExecutorInstance<BoxTransport, P>,
 }
 
@@ -42,7 +24,7 @@ impl<P: Provider + Clone> Executor<P> {
             provider.clone(),
         );
 
-        Ok(Self { provider, contract })
+        Ok(Self { contract })
     }
 
     pub async fn execute(&self, opportunity: &CalculatedOpportunity<P>) -> anyhow::Result<()> {

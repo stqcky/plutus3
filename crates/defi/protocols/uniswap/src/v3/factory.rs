@@ -1,14 +1,12 @@
-use IUniswapV3Factory::{IUniswapV3FactoryInstance, PoolCreated, getPoolCall};
+use IUniswapV3Factory::{IUniswapV3FactoryInstance, PoolCreated};
 use alloy::{
     eips::BlockId,
     primitives::{Address, BlockNumber, ChainId, address, aliases::U24},
     providers::Provider,
     sol,
-    sol_types::SolCall as _,
 };
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
-use plutus_evm::{EVM, errors::EvmCallError};
 
 use super::{fee::FeeAmount, pool::UniswapV3Pool};
 

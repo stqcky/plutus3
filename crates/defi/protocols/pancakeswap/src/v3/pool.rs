@@ -1,7 +1,4 @@
-use std::{
-    ops::{Deref, DerefMut},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use IPancakeSwapV3Pool::{IPancakeSwapV3PoolInstance, slot0Return};
 use alloy::{
@@ -18,25 +15,18 @@ use alloy::{
 };
 use anyhow::bail;
 use async_trait::async_trait;
+use parking_lot::RwLock;
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::{SwapDataPayload, pool::LiquidityPool};
 use plutus_defi_protocols_uniswap::v3::{
-    pool::{
-        IUniswapV3Pool::{
-            IUniswapV3PoolInstance, feeCall, tickSpacingCall, token0Call, token1Call,
-        },
-        Q128, StepComputations, SwapState, TickInfo, UniswapV3Pool,
-    },
+    pool::{Q128, StepComputations, SwapState, TickInfo},
     tick_bitmap::next_initialized_tick_within_one_word,
 };
 use plutus_evm::{
-    EVM,
-    errors::EvmCallError,
     mapping::{SolidityMapping, StorageDecodable},
-    storage::{FromStorageValue, SmartContractStorage},
+    storage::SmartContractStorage,
 };
 use uniswap_v3_math::{
-    error::UniswapV3MathError,
     full_math::mul_div,
     liquidity_math::add_delta,
     swap_math::compute_swap_step,
@@ -117,7 +107,7 @@ sol!(
     }
 );
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PancakeSwapV3Pool {
     pub address: Address,
 
@@ -126,10 +116,10 @@ pub struct PancakeSwapV3Pool {
     pub fee: U24,
     pub tick_spacing: I24,
 
-    pub slot0: Slot0,
-    pub fee_growth_global_0_x128: U256,
-    pub fee_growth_global_1_x128: U256,
-    pub liquidity: u128,
+    pub slot0: RwLock<Slot0>,
+    pub fee_growth_global_0_x128: RwLock<U256>,
+    pub fee_growth_global_1_x128: RwLock<U256>,
+    pub liquidity: RwLock<u128>,
 
     pub ticks: SolidityMapping<I24, TickInfo, 6, 4>,
     pub tick_bitmap: SolidityMapping<i16, U256, 7>,
@@ -197,20 +187,24 @@ impl PancakeSwapV3Pool {
                 .call()
                 .await?
                 .tickSpacing,
-            slot0: instance.slot0().block(block).call().await?.into(),
-            fee_growth_global_0_x128: instance
-                .feeGrowthGlobal0X128()
-                .block(block)
-                .call()
-                .await?
-                .feeGrowthGlobal0X128,
-            fee_growth_global_1_x128: instance
-                .feeGrowthGlobal1X128()
-                .block(block)
-                .call()
-                .await?
-                .feeGrowthGlobal1X128,
-            liquidity: instance.liquidity().block(block).call().await?.liquidity,
+            slot0: RwLock::new(instance.slot0().block(block).call().await?.into()),
+            fee_growth_global_0_x128: RwLock::new(
+                instance
+                    .feeGrowthGlobal0X128()
+                    .block(block)
+                    .call()
+                    .await?
+                    .feeGrowthGlobal0X128,
+            ),
+            fee_growth_global_1_x128: RwLock::new(
+                instance
+                    .feeGrowthGlobal1X128()
+                    .block(block)
+                    .call()
+                    .await?
+                    .feeGrowthGlobal1X128,
+            ),
+            liquidity: RwLock::new(instance.liquidity().block(block).call().await?.liquidity),
 
             ticks: SolidityMapping::new(),
             tick_bitmap: SolidityMapping::new(),
@@ -219,7 +213,7 @@ impl PancakeSwapV3Pool {
     }
 
     pub async fn exact_input_of<P: Provider>(
-        &mut self,
+        &self,
         token: Address,
         amount: U256,
         block: BlockId,
@@ -243,33 +237,35 @@ impl PancakeSwapV3Pool {
     }
 
     pub async fn swap<P: Provider>(
-        &mut self,
+        &self,
         zero_for_one: bool,
         amount_specified: I256,
         sqrt_price_limit_x96: U256,
         block: BlockId,
         provider: P,
     ) -> anyhow::Result<U256> {
+        let slot0 = *self.slot0.read();
+
         if zero_for_one {
             assert!(sqrt_price_limit_x96 > MIN_SQRT_RATIO);
 
-            if sqrt_price_limit_x96 >= U256::from(self.slot0.sqrt_price_x96) {
+            if sqrt_price_limit_x96 >= U256::from(slot0.sqrt_price_x96) {
                 return Ok(U256::from(0));
             }
         } else {
             assert!(sqrt_price_limit_x96 < MAX_SQRT_RATIO);
 
-            if sqrt_price_limit_x96 <= U256::from(self.slot0.sqrt_price_x96) {
+            if sqrt_price_limit_x96 <= U256::from(slot0.sqrt_price_x96) {
                 return Ok(U256::from(0));
             }
         }
 
         let cache = SwapCache {
-            liquidity_start: self.liquidity,
+            liquidity_start: *self.liquidity.read(),
             fee_protocol: if zero_for_one {
-                self.slot0.fee_protocol % PROTOCOL_FEE_SP
+                slot0.fee_protocol % PROTOCOL_FEE_SP
             } else {
-                self.slot0.fee_protocol >> 16
+                slot0.fee_protocol >> 16
             },
         };
 
@@ -278,12 +274,12 @@ impl PancakeSwapV3Pool {
         let mut state = SwapState {
             amount_specified_remaining: amount_specified,
             amount_calculated: I256::ZERO,
-            sqrt_price_x96: U256::from(self.slot0.sqrt_price_x96),
-            tick: self.slot0.tick.try_into().expect("it fits"),
+            sqrt_price_x96: U256::from(slot0.sqrt_price_x96),
+            tick: slot0.tick.try_into().expect("it fits"),
             fee_growth_global_x128: if zero_for_one {
-                self.fee_growth_global_0_x128
+                *self.fee_growth_global_0_x128.read()
             } else {
-                self.fee_growth_global_1_x128
+                *self.fee_growth_global_1_x128.read()
             },
             protocol_fee: 0,
             liquidity: cache.liquidity_start,
@@ -305,11 +301,11 @@ impl PancakeSwapV3Pool {
             step.sqrt_price_start_x96 = state.sqrt_price_x96;
 
             (step.tick_next, step.initialized) = next_initialized_tick_within_one_word(
-                &mut self.tick_bitmap,
+                &self.tick_bitmap,
                 state.tick.try_into().unwrap(),
                 self.tick_spacing.try_into().unwrap(),
                 zero_for_one,
-                &mut self.storage,
+                &self.storage,
                 block,
                 &provider,
             )
@@ -367,7 +363,7 @@ impl PancakeSwapV3Pool {
                     let mut liquidity_net = self
                         .ticks
                         .get(
-                            &mut self.storage,
+                            &self.storage,
                             &I24::unchecked_from(step.tick_next),
                             block,
                             &provider,
@@ -415,7 +411,7 @@ impl PancakeSwapV3Pool {
 #[async_trait]
 impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV3Pool {
     async fn simulate_swap(
-        &mut self,
+        &self,
         token: Address,
         amount: U256,
         block: BlockId,
@@ -424,7 +420,7 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV3Pool {
         self.exact_input_of(token, amount, block, provider).await
     }
 
-    fn apply_storage_changes(&mut self, changes: hashbrown::HashMap<U256, U256>) {
+    fn apply_storage_changes(&self, changes: hashbrown::HashMap<U256, U256>) {
         let mut slot0_updated = false;
 
         for (slot, value) in changes {
@@ -433,16 +429,20 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV3Pool {
                     slot0_updated = true;
                     self.storage.insert(slot, value)
                 }
-                _ if slot == FEE_GROWTH_GLOBAL_0_X128_SLOT => self.fee_growth_global_0_x128 = value,
-                _ if slot == FEE_GROWTH_GLOBAL_1_X128_SLOT => self.fee_growth_global_1_x128 = value,
-                _ if slot == LIQUIDITY_SLOT => self.liquidity = value.to(),
+                _ if slot == FEE_GROWTH_GLOBAL_0_X128_SLOT => {
+                    *self.fee_growth_global_0_x128.write() = value
+                }
+                _ if slot == FEE_GROWTH_GLOBAL_1_X128_SLOT => {
+                    *self.fee_growth_global_1_x128.write() = value
+                }
+                _ if slot == LIQUIDITY_SLOT => *self.liquidity.write() = value.to(),
                 _ => self.storage.insert(slot, value),
             }
         }
 
         if slot0_updated {
             // pancakeswap v3 pool's slot0 is split between 2 slots :)
-            self.slot0 = Slot0::decode(
+            *self.slot0.write() = Slot0::decode(
                 self.storage
                     .get_consecutive_cached(SLOT0_SLOT, 2)
                     .expect("slot0 cache is populated")
@@ -455,9 +455,9 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV3Pool {
     }
 
     fn is_liquidity_valid(&self) -> bool {
-        let sqrt_price_x96 = U256::from(self.slot0.sqrt_price_x96);
+        let sqrt_price_x96 = U256::from(self.slot0.read().sqrt_price_x96);
 
-        self.liquidity != 0
+        *self.liquidity.read() != 0
             && sqrt_price_x96 > MIN_SQRT_RATIO + U256::from(1)
             && sqrt_price_x96 < MAX_SQRT_RATIO - U256::from(1)
     }
@@ -495,25 +495,26 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV3Pool {
         let block: BlockId = block_number.into();
 
         let slot0 = instance.slot0().block(block).call().await?._0;
+        let self_slot0 = *self.slot0.read();
 
-        if slot0.sqrt_price_x96 != self.slot0.sqrt_price_x96 {
+        if slot0.sqrt_price_x96 != self_slot0.sqrt_price_x96 {
             bail!(
                 "sqrt_price_x96 mismatch (pool {}) on block {block_number}, real {} != {}",
                 self.address,
                 slot0.sqrt_price_x96,
-                self.slot0.sqrt_price_x96
+                self_slot0.sqrt_price_x96
             );
         }
 
-        if slot0.tick != self.slot0.tick {
+        if slot0.tick != self_slot0.tick {
             bail!("tick mismatch");
         }
 
-        if slot0.fee_protocol != self.slot0.fee_protocol {
+        if slot0.fee_protocol != self_slot0.fee_protocol {
             bail!(
                 "fee_protocol mismatch, real {} != {}",
                 slot0.fee_protocol,
-                self.slot0.fee_protocol
+                self_slot0.fee_protocol
             );
         }
 
@@ -523,7 +524,7 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV3Pool {
             .call()
             .await?
             .feeGrowthGlobal0X128
-            != self.fee_growth_global_0_x128
+            != *self.fee_growth_global_0_x128.read()
         {
             bail!("fee_growth_global_0_x128 mismatch");
         }
@@ -534,13 +535,15 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV3Pool {
             .call()
             .await?
             .feeGrowthGlobal1X128
-            != self.fee_growth_global_1_x128
+            != *self.fee_growth_global_1_x128.read()
         {
             bail!("fee_growth_global_1_x128 mismatch");
         }
 
-        for (slot, simulated_value) in &self.storage.storage {
-            let slot: U256 = (*slot).into();
+        let storage = self.storage.storage.read().clone();
+
+        for (slot, simulated_value) in storage {
+            let slot: U256 = slot.into();
 
             match slot {
                 SLOT0_SLOT
@@ -555,7 +558,7 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV3Pool {
                 .block_id(block_number.into())
                 .await?;
 
-            if *simulated_value != real_value {
+            if simulated_value != real_value {
                 bail!(
                     "storage mismatch (pool {}) on block {block_number} at {}, real {} != {}",
                     self.address,
@@ -570,28 +573,29 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV3Pool {
     }
 
     async fn update_with_provider(
-        &mut self,
+        &self,
         provider: P,
         block: BlockId,
     ) -> Result<(), alloy::contract::Error> {
         let instance = IPancakeSwapV3PoolInstance::new(self.address, provider);
 
-        self.slot0 = instance.slot0().block(block).call().await?.into();
+        *self.slot0.write() = instance.slot0().block(block).call().await?.into();
 
-        self.fee_growth_global_0_x128 = instance
+        *self.fee_growth_global_0_x128.write() = instance
             .feeGrowthGlobal0X128()
             .block(block)
             .call()
             .await?
             .feeGrowthGlobal0X128;
-        self.fee_growth_global_1_x128 = instance
+
+        *self.fee_growth_global_1_x128.write() = instance
             .feeGrowthGlobal1X128()
             .block(block)
             .call()
             .await?
             .feeGrowthGlobal1X128;
 
-        self.liquidity = instance.liquidity().block(block).call().await?.liquidity;
+        *self.liquidity.write() = instance.liquidity().block(block).call().await?.liquidity;
 
         self.storage.clear();
 
@@ -683,7 +687,7 @@ mod tests {
         let quoter = PancakeSwapV3Quoter::new(provider.clone());
 
         for address in POOLS {
-            let mut pool =
+            let pool =
                 PancakeSwapV3Pool::new_with_provider(*address, provider.clone(), block).await?;
 
             for amount in 1..100 {

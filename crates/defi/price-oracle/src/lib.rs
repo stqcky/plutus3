@@ -134,7 +134,7 @@ impl<P: Provider + Clone + 'static> PriceOracle<P> {
 
         let values = futures::future::join_all(
             futures::stream::iter(pools.into_iter())
-                .map(|mut pool| async move {
+                .map(|pool| async move {
                     pool.simulate_swap(
                         of_token.address,
                         amount,

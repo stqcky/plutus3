@@ -12,16 +12,10 @@ use async_trait::async_trait;
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::pool::LiquidityPool;
 use plutus_defi_protocols_uniswap::v2::pool::UniswapV2Pool;
-use plutus_evm::{EVM, errors::EvmCallError};
 
-#[derive(Clone)]
 pub struct PancakeSwapV2Pool(pub(super) UniswapV2Pool);
 
 impl PancakeSwapV2Pool {
-    pub fn new<P: Provider>(address: Address, evm: &mut EVM<P>) -> Result<Self, EvmCallError<P>> {
-        Ok(Self(UniswapV2Pool::new(address, evm)?))
-    }
-
     pub async fn new_with_provider<P: Provider>(
         address: Address,
         provider: P,
@@ -50,16 +44,20 @@ impl DerefMut for PancakeSwapV2Pool {
 #[async_trait]
 impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV2Pool {
     async fn simulate_swap(
-        &mut self,
+        &self,
         token: Address,
         amount: U256,
         _block: BlockId,
         _provider: P,
     ) -> U256 {
-        let (reserve_in, reserve_out) = if token == self.token0.address {
-            (U256::from(self.reserves.0), U256::from(self.reserves.1))
-        } else {
-            (U256::from(self.reserves.1), U256::from(self.reserves.0))
+        let (reserve_in, reserve_out) = {
+            let reserves = *self.reserves.read();
+
+            if token == self.token0.address {
+                (U256::from(reserves.0), U256::from(reserves.1))
+            } else {
+                (U256::from(reserves.1), U256::from(reserves.0))
+            }
         };
 
         if amount.is_zero() || reserve_in.is_zero() || reserve_out.is_zero() {
@@ -73,8 +71,8 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV2Pool {
         numerator / denominator
     }
 
-    fn apply_storage_changes(&mut self, changes: hashbrown::HashMap<U256, U256>) {
-        <UniswapV2Pool as LiquidityPool<P>>::apply_storage_changes(&mut self.0, changes);
+    fn apply_storage_changes(&self, changes: hashbrown::HashMap<U256, U256>) {
+        <UniswapV2Pool as LiquidityPool<P>>::apply_storage_changes(&self.0, changes);
     }
 
     fn is_liquidity_valid(&self) -> bool {
@@ -110,12 +108,11 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV2Pool {
     }
 
     async fn update_with_provider(
-        &mut self,
+        &self,
         provider: P,
         block: BlockId,
     ) -> Result<(), alloy::contract::Error> {
-        <UniswapV2Pool as LiquidityPool<P>>::update_with_provider(&mut self.0, provider, block)
-            .await
+        <UniswapV2Pool as LiquidityPool<P>>::update_with_provider(&self.0, provider, block).await
     }
 
     fn create_payload(
@@ -164,8 +161,10 @@ mod tests {
         let router = PancakeSwapV2Router::new(provider.clone());
 
         for address in POOLS {
-            let mut pool =
+            let pool =
                 PancakeSwapV2Pool::new_with_provider(*address, provider.clone(), block).await?;
+
+            let reserves = *pool.reserves.read();
 
             for amount in 1..100 {
                 let token0_out = pool
@@ -180,8 +179,8 @@ mod tests {
                 let quoted_token0_out = router
                     .get_amount_out(
                         pool.token0.to_token_amount(amount as f64),
-                        U256::from(pool.reserves.0),
-                        U256::from(pool.reserves.1),
+                        U256::from(reserves.0),
+                        U256::from(reserves.1),
                     )
                     .await?;
 
@@ -204,8 +203,8 @@ mod tests {
                 let quoted_token1_out = router
                     .get_amount_out(
                         pool.token1.to_token_amount(amount as f64),
-                        U256::from(pool.reserves.1),
-                        U256::from(pool.reserves.0),
+                        U256::from(reserves.1),
+                        U256::from(reserves.0),
                     )
                     .await?;
 
@@ -216,28 +215,6 @@ mod tests {
                     );
                 }
             }
-        }
-
-        Ok(())
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn decoding_is_correct() -> anyhow::Result<()> {
-        let provider = Arc::new(
-            ProviderBuilder::new().with_recommended_fillers().on_client(
-                ClientBuilder::default()
-                    .ipc(dotenv!("IPC_PROVIDER").to_string().into())
-                    .await?
-                    .boxed(),
-            ),
-        );
-
-        let block_number = provider.get_block_number().await?;
-        let mut evm = EVM::new(provider.clone(), block_number);
-
-        for address in POOLS {
-            let pool = PancakeSwapV2Pool::new(*address, &mut evm)?;
-            pool.verify_health(provider.clone(), block_number).await?;
         }
 
         Ok(())

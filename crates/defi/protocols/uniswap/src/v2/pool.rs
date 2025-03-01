@@ -1,7 +1,8 @@
 use alloy::sol_types::SolType;
+use parking_lot::RwLock;
 use std::sync::Arc;
 
-use IUniswapV2Pool::{IUniswapV2PoolInstance, token0Call, token1Call};
+use IUniswapV2Pool::IUniswapV2PoolInstance;
 use alloy::{
     eips::BlockId,
     primitives::{Address, BlockNumber, U256, aliases::U112},
@@ -14,7 +15,7 @@ use anyhow::bail;
 use async_trait::async_trait;
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::{SwapDataPayload, pool::LiquidityPool};
-use plutus_evm::{EVM, errors::EvmCallError, storage::FromStorageValue};
+use plutus_evm::storage::FromStorageValue;
 
 sol!(
     #[sol(rpc)]
@@ -36,26 +37,16 @@ sol!(
 #[derive(Clone, Copy)]
 pub struct Reserves(pub U112, pub U112);
 
-#[derive(Clone)]
 pub struct UniswapV2Pool {
     pub address: Address,
 
     pub token0: ERC20,
     pub token1: ERC20,
 
-    pub reserves: Reserves,
+    pub reserves: RwLock<Reserves>,
 }
 
 impl UniswapV2Pool {
-    pub fn new<P: Provider>(address: Address, evm: &mut EVM<P>) -> Result<Self, EvmCallError<P>> {
-        Ok(Self {
-            address,
-            token0: ERC20::new(evm.call(address, token0Call::new(()))?.output.token0, evm)?,
-            token1: ERC20::new(evm.call(address, token1Call::new(()))?.output.token1, evm)?,
-            reserves: Reserves::from_storage_value(evm.storage(address, uint!(8U256))),
-        })
-    }
-
     pub async fn new_with_provider<P: Provider>(
         address: Address,
         provider: P,
@@ -77,7 +68,7 @@ impl UniswapV2Pool {
                 &provider,
             )
             .await?,
-            reserves: Reserves(reserves._reserve0, reserves._reserve1),
+            reserves: RwLock::new(Reserves(reserves._reserve0, reserves._reserve1)),
         })
     }
 
@@ -108,35 +99,44 @@ impl FromStorageValue for Reserves {
 #[async_trait]
 impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
     async fn simulate_swap(
-        &mut self,
+        &self,
         token: Address,
         amount: U256,
         _block: BlockId,
         _provider: P,
     ) -> U256 {
-        let (reserve_in, reserve_out) = if token == self.token0.address {
-            (self.reserves.0, self.reserves.1)
-        } else {
-            (self.reserves.1, self.reserves.0)
+        let (reserve_in, reserve_out) = {
+            let reserves = self.reserves.read();
+
+            if token == self.token0.address {
+                (reserves.0, reserves.1)
+            } else {
+                (reserves.1, reserves.0)
+            }
         };
 
         Self::swap(amount, U256::from(reserve_in), U256::from(reserve_out))
     }
 
-    fn apply_storage_changes(&mut self, changes: hashbrown::HashMap<U256, U256>) {
+    fn apply_storage_changes(&self, changes: hashbrown::HashMap<U256, U256>) {
         let reserves_slot_value = changes.get(&uint!(8U256));
 
         if let Some(value) = reserves_slot_value {
-            self.reserves = Reserves::from_storage_value(*value);
+            let reserves = Reserves::from_storage_value(*value);
+            *self.reserves.write() = reserves;
         }
     }
 
     fn is_liquidity_valid(&self) -> bool {
-        !self.reserves.0.is_zero() && !self.reserves.1.is_zero()
+        let reserves = self.reserves.read();
+
+        !reserves.0.is_zero() && !reserves.1.is_zero()
     }
 
     async fn tokens_locked(&self, _provider: P) -> Result<(U256, U256), alloy::contract::Error> {
-        Ok((U256::from(self.reserves.0), U256::from(self.reserves.1)))
+        let reserves = self.reserves.read();
+
+        Ok((U256::from(reserves.0), U256::from(reserves.1)))
     }
 
     fn identifier(&self) -> &'static str {
@@ -165,20 +165,21 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
         let block: BlockId = block_number.into();
 
         let reserves = instance.getReserves().block(block).call().await?;
+        let self_reserves = self.reserves.read();
 
-        if reserves._reserve0 != self.reserves.0 {
+        if reserves._reserve0 != self_reserves.0 {
             bail!(
                 "reserve0 mismatch on block {block_number}, real {} != {}",
                 reserves._reserve0,
-                self.reserves.0
+                self_reserves.0
             );
         }
 
-        if reserves._reserve1 != self.reserves.1 {
+        if reserves._reserve1 != self_reserves.1 {
             bail!(
                 "reserve1 mismatch on block {block_number}, real {} != {}",
                 reserves._reserve1,
-                self.reserves.1
+                self_reserves.1
             );
         }
 
@@ -186,15 +187,14 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
     }
 
     async fn update_with_provider(
-        &mut self,
+        &self,
         provider: P,
         block: BlockId,
     ) -> Result<(), alloy::contract::Error> {
         let instance = IUniswapV2PoolInstance::new(self.address, provider);
         let reserves = instance.getReserves().block(block).call().await?;
 
-        self.reserves.0 = reserves._reserve0;
-        self.reserves.1 = reserves._reserve1;
+        *self.reserves.write() = Reserves(reserves._reserve0, reserves._reserve1);
 
         Ok(())
     }
@@ -254,8 +254,9 @@ mod tests {
         let router = UniswapV2Router::new(provider.clone());
 
         for address in POOLS {
-            let mut pool =
-                UniswapV2Pool::new_with_provider(*address, provider.clone(), block).await?;
+            let pool = UniswapV2Pool::new_with_provider(*address, provider.clone(), block).await?;
+
+            let reserves = pool.reserves.read();
 
             for amount in 1..100 {
                 let token0_out = pool
@@ -270,8 +271,8 @@ mod tests {
                 let quoted_token0_out = router
                     .get_amount_out(
                         pool.token0.to_token_amount(amount as f64),
-                        U256::from(pool.reserves.0),
-                        U256::from(pool.reserves.1),
+                        U256::from(reserves.0),
+                        U256::from(reserves.1),
                     )
                     .await?;
 
@@ -294,8 +295,8 @@ mod tests {
                 let quoted_token1_out = router
                     .get_amount_out(
                         pool.token1.to_token_amount(amount as f64),
-                        U256::from(pool.reserves.1),
-                        U256::from(pool.reserves.0),
+                        U256::from(reserves.1),
+                        U256::from(reserves.0),
                     )
                     .await?;
 
@@ -306,28 +307,6 @@ mod tests {
                     );
                 }
             }
-        }
-
-        Ok(())
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn decoding_is_correct() -> anyhow::Result<()> {
-        let provider = Arc::new(
-            ProviderBuilder::new().with_recommended_fillers().on_client(
-                ClientBuilder::default()
-                    .ipc(dotenv!("IPC_PROVIDER").to_string().into())
-                    .await?
-                    .boxed(),
-            ),
-        );
-
-        let block_number = provider.get_block_number().await?;
-        let mut evm = EVM::new(provider.clone(), block_number);
-
-        for address in POOLS {
-            let pool = UniswapV2Pool::new(*address, &mut evm)?;
-            pool.verify_health(provider.clone(), block_number).await?;
         }
 
         Ok(())

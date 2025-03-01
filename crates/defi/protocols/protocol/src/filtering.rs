@@ -1,14 +1,13 @@
-use std::{marker::PhantomData, sync::Arc, time::Instant};
+use std::{marker::PhantomData, sync::Arc};
 
 use alloy::{
     eips::BlockId,
-    primitives::{Address, BlockNumber, address, map::AddressMap},
+    primitives::{Address, address, map::AddressMap},
     providers::Provider,
 };
 use futures::future;
 use parking_lot::Mutex;
 use plutus_defi_erc20::ERC20;
-use plutus_evm::EVM;
 use tokio::sync::Semaphore;
 
 use crate::{DiscoverableProtocol, pool::LiquidityPool};
@@ -74,7 +73,7 @@ impl TokenValueCache {
 
         let mut values = vec![];
 
-        for mut pool in pools {
+        for pool in pools {
             values.push(
                 pool.simulate_swap(
                     of_token.address,
@@ -96,7 +95,7 @@ impl TokenValueCache {
         token1: Address,
         protocols: Arc<Vec<Box<dyn DiscoverableProtocol<P>>>>,
         provider: P,
-    ) -> Vec<Box<dyn LiquidityPool<P>>> {
+    ) -> Vec<Arc<dyn LiquidityPool<P>>> {
         let mut pools = vec![];
 
         for protocol in protocols.iter() {
@@ -162,11 +161,11 @@ impl<P: Provider + std::fmt::Debug + 'static + Clone> PoolFilter<P> {
 
     pub async fn filter_pools(
         self,
-        pools: Vec<Box<dyn LiquidityPool<P>>>,
+        pools: Vec<Arc<dyn LiquidityPool<P>>>,
         provider: P,
         protocols: Vec<Box<dyn DiscoverableProtocol<P>>>,
         block: BlockId,
-    ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
+    ) -> anyhow::Result<Vec<Arc<dyn LiquidityPool<P>>>>
     where
         P: Clone,
     {

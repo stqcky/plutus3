@@ -2,16 +2,14 @@ use std::{sync::Arc, time::Instant};
 
 use alloy::{
     eips::BlockId,
-    primitives::{Address, BlockNumber, ChainId, U256, address},
+    primitives::{Address, BlockNumber, ChainId},
     providers::Provider,
 };
 use anyhow::Context;
-use futures::{StreamExt, future, stream::FuturesUnordered};
+use futures::future;
 use hashbrown::HashMap;
-use plutus_defi_erc20::ERC20;
-use plutus_evm::{EVM, errors::EvmCallError};
 use plutus_storage::{IdentifiedLiquidityPool, Storage};
-use tokio::{sync::Semaphore, task::spawn_blocking};
+use tokio::sync::Semaphore;
 
 use crate::{DiscoverableProtocol, ProtocolFactory, filtering::PoolFilter, pool::LiquidityPool};
 
@@ -99,7 +97,7 @@ impl<P: Provider + Clone> ProtocolRegistry<P> {
         &self,
         records: Vec<IdentifiedLiquidityPool>,
         block: BlockId,
-    ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
+    ) -> anyhow::Result<Vec<Arc<dyn LiquidityPool<P>>>>
     where
         P: Clone + 'static,
     {
@@ -141,7 +139,7 @@ impl<P: Provider + Clone> ProtocolRegistry<P> {
         &self,
         storage: &Storage,
         block: BlockId,
-    ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
+    ) -> anyhow::Result<Vec<Arc<dyn LiquidityPool<P>>>>
     where
         P: std::fmt::Debug + 'static + Clone,
     {
@@ -154,7 +152,7 @@ impl<P: Provider + Clone> ProtocolRegistry<P> {
         protocol: Arc<dyn DiscoverableProtocol<P>>,
         addresses: Vec<Address>,
         block: BlockId,
-    ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
+    ) -> anyhow::Result<Vec<Arc<dyn LiquidityPool<P>>>>
     where
         P: Clone + 'static,
     {
@@ -195,7 +193,7 @@ impl<P: Provider + Clone> ProtocolRegistry<P> {
         storage: &Storage,
         usd_value: f64,
         block: BlockId,
-    ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
+    ) -> anyhow::Result<Vec<Arc<dyn LiquidityPool<P>>>>
     where
         P: std::fmt::Debug + 'static + Clone,
     {
@@ -229,7 +227,7 @@ impl<P: Provider + Clone> ProtocolRegistry<P> {
     pub async fn cache_filtered_pools(
         &self,
         storage: &Storage,
-        pools: &[Box<dyn LiquidityPool<P>>],
+        pools: &[Arc<dyn LiquidityPool<P>>],
     ) -> anyhow::Result<()> {
         let identified_pools: Vec<_> = pools
             .iter()
@@ -248,7 +246,7 @@ impl<P: Provider + Clone> ProtocolRegistry<P> {
         &self,
         storage: &Storage,
         block: BlockId,
-    ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
+    ) -> anyhow::Result<Vec<Arc<dyn LiquidityPool<P>>>>
     where
         P: Clone + 'static,
     {
@@ -262,44 +260,5 @@ impl<P: Provider + Clone> ProtocolRegistry<P> {
 
     pub fn protocol_identifiers(&self) -> Vec<String> {
         self.protocols.keys().cloned().collect()
-    }
-
-    async fn get_pools(
-        &self,
-        token0: Address,
-        token1: Address,
-    ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, alloy::contract::Error> {
-        let mut pools = vec![];
-
-        for protocol in self.protocols.values() {
-            pools.extend(
-                protocol
-                    .get_pools_with_provider(token0, token1, self.provider.clone())
-                    .await?,
-            );
-        }
-
-        Ok(pools)
-    }
-
-    pub async fn get_token_value(
-        &self,
-        of_token: Address,
-        in_token: Address,
-        amount: U256,
-        block: BlockId,
-    ) -> Result<U256, alloy::contract::Error> {
-        let pools = self.get_pools(of_token, in_token).await?;
-
-        let mut values = vec![];
-
-        for mut pool in pools {
-            values.push(
-                pool.simulate_swap(of_token, amount, block, self.provider.clone())
-                    .await,
-            );
-        }
-
-        Ok(values.into_iter().max().unwrap_or(U256::from(0)))
     }
 }
