@@ -118,6 +118,11 @@ impl<P: Provider + Clone> ProtocolRegistry<P> {
         let mut pools = vec![];
 
         for (protocol, addresses) in pools_by_protocol {
+            if !self.protocols.contains_key(&protocol) {
+                tracing::warn!("missing protocol entry for {protocol}");
+                continue;
+            }
+
             let protocol: Arc<dyn DiscoverableProtocol<P>> =
                 self.protocols[&protocol].clone().into();
 

@@ -67,6 +67,8 @@ syn = "2.0.98"
 revm = { git = "https://github.com/bluealloy/revm/" }
 revm-database = { git = "https://github.com/bluealloy/revm/" }
 
+criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
+
 [profile.release]
 debug = true
 

@@ -15,3 +15,14 @@ hashbrown.workspace = true
 tracing.workspace = true
 futures.workspace = true
 rayon.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+plutus-storage.workspace = true
+alloy.workspace = true
+dotenvy_macro.workspace = true
+plutus-defi-protocols-uniswap.workspace = true
+
+[[bench]]
+name = "opportunities"
+harness = false

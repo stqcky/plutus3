@@ -184,11 +184,11 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
     ) -> anyhow::Result<Vec<CalculatedOpportunity<P>>> {
         let now = Instant::now();
         let opportunities = self.simple_finding(target_tokens);
-        // tracing::info!("simple_finding took {:?}", now.elapsed());
-        // tracing::info!("opportunity count: {}", opportunities.len());
+
+        tracing::info!("opportunity count: {}", opportunities.len());
 
         let now = Instant::now();
-        let semaphore = Arc::new(Semaphore::new(24));
+        let semaphore = Arc::new(Semaphore::new(16));
         let tasks: Vec<_> = opportunities
             .into_iter()
             .map(|opportunity| {
@@ -207,7 +207,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             .into_iter()
             .filter_map(|x| x)
             .collect();
-        // tracing::info!("calculations took {:?}", now.elapsed());
+        tracing::info!("calculations took {:?}", now.elapsed());
 
         Ok(opportunities)
     }
@@ -250,7 +250,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
                     steps.push((node0, node1, best_weight.pool));
                 }
 
-                if profit > 1.05 {
+                if profit > 1.0 {
                     Some((profit, steps))
                 } else {
                     None

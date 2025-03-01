@@ -146,9 +146,12 @@ async fn main() -> anyhow::Result<()> {
             last_health_check = Instant::now();
         }
 
+        let now = Instant::now();
         let opportunities = token_graph
             .find_opportunities(affected_tokens.clone(), current_block, provider.clone())
             .await?;
+
+        tracing::info!("find_opportunities: {:?}", now.elapsed());
 
         if opportunities.len() == 0 {
             tracing::warn!("no opportunities");
@@ -175,9 +178,13 @@ async fn main() -> anyhow::Result<()> {
             let usd_value = best_opportunity.1;
 
             tracing::info!("${}", usd_value);
-            if usd_value >= 0.011 {
+            // if usd_value >= 0.011 {
+            if usd_value >= 1.0 {
                 tracing::info!("{}", opportunity);
-                executor.execute(opportunity).await?;
+                executor
+                    .execute(opportunity)
+                    .await
+                    .inspect_err(|err| tracing::error!("{err}"));
 
                 // panic!("yo");
             }

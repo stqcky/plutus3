@@ -37,5 +37,51 @@ async fn main() -> anyhow::Result<()> {
         .event_format(tracing_subscriber::fmt::format().without_time().compact())
         .init();
 
+    let provider = Arc::new(
+        ProviderBuilder::new().with_recommended_fillers().on_client(
+            ClientBuilder::default()
+                .ipc(dotenv!("IPC_PROVIDER").to_string().into())
+                .await?
+                .boxed(),
+        ),
+    );
+
+    let mut pool = UniswapV3Pool::new_with_provider(
+        address!("0x44c40a6544f29f331720E989Cd2724306b21c0d0"),
+        provider.clone(),
+        BlockId::latest(),
+    )
+    .await?;
+
+    let now = Instant::now();
+    pool.simulate_swap(
+        pool.token0.address,
+        pool.token0.to_token_amount(1.0),
+        BlockId::latest(),
+        provider.clone(),
+    )
+    .await;
+    tracing::info!("{:?}", now.elapsed());
+
+    let now = Instant::now();
+    pool.simulate_swap(
+        pool.token0.address,
+        pool.token0.to_token_amount(1.0),
+        BlockId::latest(),
+        provider.clone(),
+    )
+    .await;
+    tracing::info!("{:?}", now.elapsed());
+
+    let now = Instant::now();
+    pool.simulate_swap(
+        pool.token0.address,
+        pool.token0.to_token_amount(1.0),
+        BlockId::latest(),
+        provider.clone(),
+    )
+    .await;
+    tracing::info!("{:?}", now.elapsed());
+
     Ok(())
 }

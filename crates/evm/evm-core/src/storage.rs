@@ -27,6 +27,7 @@ impl SmartContractStorage {
         match entry {
             Entry::Occupied(entry) => Ok(*entry.get()),
             Entry::Vacant(vacant) => {
+                println!("CACHE MISS");
                 let value = provider
                     .get_storage_at(self.address, slot)
                     .block_id(block)
