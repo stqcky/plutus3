@@ -148,7 +148,7 @@ async fn main() -> anyhow::Result<()> {
         let (affected_tokens, affected_pools) = token_graph
             .apply_state(state_change.changes, provider.clone(), current_block)
             .await;
-        tracing::info!("token_graph.apply_state in {:?}", now_apply_state.elapsed());
+        // tracing::info!("token_graph.apply_state in {:?}", now_apply_state.elapsed());
 
         if catching_up {
             continue;
@@ -193,7 +193,7 @@ async fn main() -> anyhow::Result<()> {
 
             opportunities_with_usd.push((opportunity, usd_value));
         }
-        tracing::info!("got prices in {:?}", now_prices.elapsed());
+        // tracing::info!("got prices in {:?}", now_prices.elapsed());
 
         opportunities_with_usd.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 

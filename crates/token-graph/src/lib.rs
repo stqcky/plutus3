@@ -197,10 +197,11 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         block: BlockId,
         provider: P,
     ) -> anyhow::Result<Vec<CalculatedOpportunity<P>>> {
-        // let now = Instant::now();
+        let now = Instant::now();
         let opportunities = self.simple_finding(target_tokens, target_pools);
+        tracing::info!("simple_finding: {:?}", now.elapsed());
 
-        // tracing::info!("opportunity count: {}", opportunities.len());
+        tracing::info!("opportunity count: {}", opportunities.len());
 
         let now = Instant::now();
         let semaphore = Arc::new(Semaphore::new(16));
@@ -222,7 +223,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             .into_iter()
             .filter_map(|x| x)
             .collect();
-        // tracing::info!("calculations took {:?}", now.elapsed());
+        tracing::info!("calculations took {:?}", now.elapsed());
 
         Ok(opportunities)
     }

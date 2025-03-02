@@ -19,7 +19,7 @@ use parking_lot::RwLock;
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::{SwapDataPayload, pool::LiquidityPool};
 use plutus_defi_protocols_uniswap::v3::{
-    pool::{Q128, StepComputations, SwapState, TickInfo},
+    pool::{Q128, StepComputations, SwapCalculationCache, SwapState, TickInfo},
     tick_bitmap::next_initialized_tick_within_one_word,
 };
 use plutus_evm::{
@@ -124,6 +124,8 @@ pub struct PancakeSwapV3Pool {
     pub ticks: SolidityMapping<I24, TickInfo, 6, 4>,
     pub tick_bitmap: SolidityMapping<i16, U256, 7>,
 
+    swap_cache: SwapCalculationCache,
+
     pub storage: SmartContractStorage,
 }
 
@@ -214,6 +216,7 @@ impl PancakeSwapV3Pool {
             ticks: SolidityMapping::new(),
             tick_bitmap: SolidityMapping::new(),
             storage,
+            swap_cache: SwapCalculationCache::default(),
         })
     }
 
@@ -226,19 +229,29 @@ impl PancakeSwapV3Pool {
     ) -> U256 {
         let zero_for_one = token == self.token0.address;
 
-        self.swap(
-            zero_for_one,
-            I256::from_raw(amount),
-            if zero_for_one {
-                MIN_SQRT_RATIO + U256::from(1)
-            } else {
-                MAX_SQRT_RATIO - U256::from(1)
-            },
-            block,
-            provider,
-        )
-        .await
-        .unwrap_or(U256::from(0))
+        if let Some(amount_out) = self.swap_cache.get(block, zero_for_one, amount) {
+            return amount_out;
+        }
+
+        let amount_out = self
+            .swap(
+                zero_for_one,
+                I256::from_raw(amount),
+                if zero_for_one {
+                    MIN_SQRT_RATIO + U256::from(1)
+                } else {
+                    MAX_SQRT_RATIO - U256::from(1)
+                },
+                block,
+                provider,
+            )
+            .await
+            .unwrap_or(U256::from(0));
+
+        self.swap_cache
+            .insert(block, zero_for_one, amount, amount_out);
+
+        amount_out
     }
 
     pub async fn swap<P: Provider>(

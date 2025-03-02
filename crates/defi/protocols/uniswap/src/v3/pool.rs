@@ -1,4 +1,5 @@
 use alloy::sol_types::{SolCall, SolType};
+use hashbrown::HashMap;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -110,6 +111,39 @@ sol!(
     }
 );
 
+#[derive(Debug, Default)]
+pub struct SwapCalculationCache {
+    block: RwLock<BlockId>,
+    cache: RwLock<HashMap<(bool, U256), U256>>,
+}
+
+impl SwapCalculationCache {
+    pub fn get(&self, block: BlockId, zero_for_one: bool, amount_in: U256) -> Option<U256> {
+        let cached_block = *self.block.read();
+
+        if cached_block != block {
+            *self.block.write() = block;
+            self.cache.write().clear();
+            return None;
+        }
+
+        self.cache.read().get(&(zero_for_one, amount_in)).copied()
+    }
+
+    pub fn insert(&self, block: BlockId, zero_for_one: bool, amount_in: U256, amount_out: U256) {
+        let cached_block = *self.block.read();
+
+        let mut cache = self.cache.write();
+
+        if cached_block != block {
+            *self.block.write() = block;
+            cache.clear();
+        }
+
+        cache.insert((zero_for_one, amount_in), amount_out);
+    }
+}
+
 #[derive(Debug)]
 pub struct UniswapV3Pool {
     pub address: Address,
@@ -126,6 +160,8 @@ pub struct UniswapV3Pool {
 
     pub ticks: SolidityMapping<I24, TickInfo, 5, 4>,
     pub tick_bitmap: SolidityMapping<i16, U256, 6>,
+
+    swap_cache: SwapCalculationCache,
 
     pub storage: SmartContractStorage,
 }
@@ -242,6 +278,7 @@ impl UniswapV3Pool {
             ticks: SolidityMapping::new(),
             tick_bitmap: SolidityMapping::new(),
             storage: SmartContractStorage::new(address),
+            swap_cache: SwapCalculationCache::default(),
         })
     }
 
@@ -254,19 +291,29 @@ impl UniswapV3Pool {
     ) -> U256 {
         let zero_for_one = token == self.token0.address;
 
-        self.swap(
-            zero_for_one,
-            I256::from_raw(amount),
-            if zero_for_one {
-                MIN_SQRT_RATIO + U256::from(1)
-            } else {
-                MAX_SQRT_RATIO - U256::from(1)
-            },
-            block,
-            provider,
-        )
-        .await
-        .unwrap_or(U256::from(0))
+        if let Some(amount_out) = self.swap_cache.get(block, zero_for_one, amount) {
+            return amount_out;
+        }
+
+        let amount_out = self
+            .swap(
+                zero_for_one,
+                I256::from_raw(amount),
+                if zero_for_one {
+                    MIN_SQRT_RATIO + U256::from(1)
+                } else {
+                    MAX_SQRT_RATIO - U256::from(1)
+                },
+                block,
+                provider,
+            )
+            .await
+            .unwrap_or(U256::from(0));
+
+        self.swap_cache
+            .insert(block, zero_for_one, amount, amount_out);
+
+        amount_out
     }
 
     pub fn exact_input_of_with_quoter<P: Provider>(

@@ -55,19 +55,14 @@ impl<P: Provider> Display for CalculatedOpportunity<P> {
 }
 
 pub async fn calculate_opportunity<P: Provider + Clone>(
-    mut opportunity: Opportunity<P>,
+    opportunity: Opportunity<P>,
     block: BlockId,
     provider: P,
 ) -> Option<CalculatedOpportunity<P>> {
     let first_token_decimals = opportunity[0].token0.decimals;
 
-    let amount_in = optimize_profit(
-        &mut opportunity,
-        first_token_decimals,
-        block,
-        provider.clone(),
-    )
-    .await;
+    let amount_in =
+        optimize_profit(&opportunity, first_token_decimals, block, provider.clone()).await;
 
     let mut legs = vec![];
     let mut amount = amount_in;
@@ -123,7 +118,6 @@ async fn optimize_profit<P: Provider + Clone>(
 
     for _ in 0..max_iter {
         let middle = (lower_bound + upper_bound) / two;
-        // tracing::info!("middle {middle}");
 
         let point_lower = lower_bound + (middle - lower_bound) / two;
         let point_higher = middle + (upper_bound - middle) / two;

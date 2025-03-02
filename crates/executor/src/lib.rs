@@ -74,7 +74,7 @@ impl<T: Transport + Clone, P: Provider<T> + Clone + WalletProvider> Executor<T, 
             .into_transaction_request()
             .with_nonce(self.nonce)
             .with_gas_limit(1_000_000)
-            .max_fee_per_gas(20_000_000)
+            .max_fee_per_gas(30_000_000)
             .max_priority_fee_per_gas(0)
             .with_chain_id(42161);
 
