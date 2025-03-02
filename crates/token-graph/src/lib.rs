@@ -114,28 +114,36 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         traces: Vec<AddressMap<HashMap<U256, U256>>>,
         provider: P,
         block: BlockId,
-    ) -> AddressSet
+    ) -> (AddressSet, AddressSet)
     where
         P: Clone,
     {
-        let mut changed_addresses = AddressSet::default();
-        let mut affected_tokens = AddressSet::default();
+        let mut changes = AddressMap::<HashMap<U256, U256>>::default();
 
-        for trace in &traces {
-            changed_addresses.extend(trace.keys());
+        for trace in traces {
+            for (address, storage) in trace {
+                for (slot, value) in storage {
+                    changes.entry(address).or_default().insert(slot, value);
+                }
+            }
         }
 
-        for address in changed_addresses {
-            let Some(pool_index) = self.pool_map.get(&address) else {
+        let mut affected_tokens = AddressSet::default();
+        let mut affected_pools = AddressSet::default();
+
+        for (address, storage_changes) in changes {
+            let Some(&pool_index) = self.pool_map.get(&address) else {
                 continue;
             };
 
-            let pool = self.pools.get_mut(*pool_index).unwrap();
-            pool.update_with_provider(provider.clone(), block)
-                .await
-                .unwrap();
-            // pool.apply_storage_changes(changes);
+            let pool = self.pools.get(pool_index).unwrap();
 
+            affected_pools.insert(pool.address());
+
+            pool.apply_storage_changes(storage_changes);
+            // pool.update_with_provider(provider.clone(), block)
+            //     .await
+            //     .unwrap();
             let (edge0, edge1) = self.pool_edge_map[&address];
 
             let tokens = pool.tokens();
@@ -169,19 +177,20 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             .weight;
         }
 
-        affected_tokens
+        (affected_tokens, affected_pools)
     }
 
     pub async fn find_opportunities(
         &self,
         target_tokens: AddressSet,
+        target_pools: AddressSet,
         block: BlockId,
         provider: P,
     ) -> anyhow::Result<Vec<CalculatedOpportunity<P>>> {
         // let now = Instant::now();
-        let opportunities = self.simple_finding(target_tokens);
+        let opportunities = self.simple_finding(target_tokens, target_pools);
 
-        tracing::info!("opportunity count: {}", opportunities.len());
+        // tracing::info!("opportunity count: {}", opportunities.len());
 
         let now = Instant::now();
         let semaphore = Arc::new(Semaphore::new(16));
@@ -203,19 +212,16 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             .into_iter()
             .filter_map(|x| x)
             .collect();
-        tracing::info!("calculations took {:?}", now.elapsed());
+        // tracing::info!("calculations took {:?}", now.elapsed());
 
         Ok(opportunities)
     }
 
-    pub async fn find_uncalculated_opportunities(
+    fn simple_finding(
         &self,
         target_tokens: AddressSet,
-    ) -> Vec<Opportunity<P>> {
-        self.simple_finding(target_tokens)
-    }
-
-    fn simple_finding(&self, target_tokens: AddressSet) -> Vec<Vec<OpportunityLeg<P>>> {
+        target_pools: AddressSet,
+    ) -> Vec<Vec<OpportunityLeg<P>>> {
         let cycles: Vec<_> = dedup_cycles(
             target_tokens
                 .iter()
@@ -231,22 +237,53 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
                 let mut steps = vec![];
                 let mut profit = 1.0;
 
+                let mut target_token_included = false;
+                let mut target_pool_included = false;
+
                 for pair in cycle.windows(2) {
                     let (node0, node1) = (pair[0], pair[1]);
+                    let (token0, token1) = (self.graph[node0].address, self.graph[node1].address);
 
-                    let edges = self.graph.edges_connecting(node0, node1);
+                    let pools: Vec<_> = self
+                        .graph
+                        .edges_connecting(node0, node1)
+                        .map(|edge| edge.weight().clone())
+                        .collect();
 
-                    let best_weight = edges
-                        .max_by(|&a, &b| a.weight().weight.partial_cmp(&b.weight().weight).unwrap())
-                        .unwrap()
-                        .weight();
+                    // let targeted_pools = pools
+                    //     .iter()
+                    //     .filter(|pool| target_pools.contains(&pool.pool))
+                    //     .collect::<Vec<_>>();
+                    //
+                    // let best_pool = if !targeted_pools.is_empty() {
+                    //     targeted_pools
+                    //         .into_iter()
+                    //         .max_by(|&a, &b| a.weight.partial_cmp(&b.weight).unwrap())
+                    //         .unwrap()
+                    //         .to_owned()
+                    // } else {
+                    //     pools
+                    //         .into_iter()
+                    //         .max_by(|a, b| a.weight.partial_cmp(&b.weight).unwrap())
+                    //         .unwrap()
+                    // };
 
-                    profit *= best_weight.weight;
+                    let best_pool = pools
+                        .into_iter()
+                        .max_by(|a, b| a.weight.partial_cmp(&b.weight).unwrap())
+                        .unwrap();
 
-                    steps.push((node0, node1, best_weight.pool));
+                    target_token_included |=
+                        target_tokens.contains(&token0) || target_tokens.contains(&token1);
+
+                    target_pool_included |= target_pools.contains(&best_pool.pool);
+
+                    profit *= best_pool.weight;
+
+                    steps.push((node0, node1, best_pool.pool));
                 }
 
-                if profit > 1.0 {
+                if profit > 1.0 && target_token_included && target_pool_included {
                     Some((profit, steps))
                 } else {
                     None
@@ -260,21 +297,6 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         });
 
         let opportunities: Vec<_> = opportunities.into_iter().map(|a| a.1).collect();
-
-        let opportunities: Vec<_> = opportunities
-            .into_iter()
-            .filter(|opportunity| {
-                for step in opportunity {
-                    let (token0, token1) = (self.graph[step.0].address, self.graph[step.1].address);
-
-                    if target_tokens.contains(&token0) || target_tokens.contains(&token1) {
-                        return true;
-                    }
-                }
-
-                false
-            })
-            .collect();
 
         let opportunities = opportunities
             .into_iter()

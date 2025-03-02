@@ -17,6 +17,7 @@ plutus-storage.workspace = true
 plutus-monitoring.workspace = true
 plutus-token-graph.workspace = true
 plutus-executor.workspace = true
+plutus-arbitrum.workspace = true
 
 alloy = { workspace = true, features = ["full"] }
 anyhow.workspace = true

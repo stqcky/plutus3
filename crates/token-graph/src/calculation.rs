@@ -102,12 +102,12 @@ pub async fn calculate_opportunity<P: Provider + Clone>(
 }
 
 async fn optimize_profit<P: Provider + Clone>(
-    opportunity: &mut Opportunity<P>,
+    opportunity: &Opportunity<P>,
     decimals: u8,
     block: BlockId,
     provider: P,
 ) -> U256 {
-    let mut get_profit = async |x| {
+    let get_profit = async |x| {
         I256::from_raw(simulate_opportunity(opportunity, x, block, provider.clone()).await)
             - I256::from_raw(x)
     };
@@ -132,8 +132,8 @@ async fn optimize_profit<P: Provider + Clone>(
             break;
         }
 
-        let lower_profit = get_profit(point_lower).await;
-        let upper_profit = get_profit(point_higher).await;
+        let (lower_profit, upper_profit) =
+            tokio::join!(get_profit(point_lower), get_profit(point_higher));
 
         // tracing::info!("{lower_profit:?} {upper_profit:?}");
 
@@ -189,7 +189,7 @@ async fn optimize_profit<P: Provider + Clone>(
 // }
 
 async fn simulate_opportunity<P: Provider + Clone>(
-    opportunity: &mut Opportunity<P>,
+    opportunity: &Opportunity<P>,
     amount_in: U256,
     block: BlockId,
     provider: P,

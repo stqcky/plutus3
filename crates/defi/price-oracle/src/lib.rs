@@ -1,4 +1,5 @@
 use alloy::eips::BlockId;
+use alloy::primitives::U256;
 use alloy::primitives::address;
 use futures::StreamExt;
 use plutus_defi_erc20::ERC20;
@@ -44,14 +45,10 @@ impl<P: Provider + Clone + 'static> PriceOracle<P> {
             provider,
         });
 
-        println!("hello");
-
         oracle.cache_price(
             oracle.weth.address,
             oracle.clone().get_uniswap_v3_price(&oracle.weth).await,
         );
-        println!("hello2");
-
         Ok(oracle)
     }
 
@@ -64,6 +61,10 @@ impl<P: Provider + Clone + 'static> PriceOracle<P> {
         self.cache_price(token.address, price);
 
         price
+    }
+
+    pub async fn get_eth_price(self: Arc<Self>, amount: U256) -> f64 {
+        self.clone().get_price(&self.weth).await * self.weth.to_float_amount(amount)
     }
 
     fn get_cached_price(self: Arc<Self>, token: &ERC20) -> Option<f64> {

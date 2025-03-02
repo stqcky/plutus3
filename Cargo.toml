@@ -2,7 +2,7 @@
 members = [ 
     # "bin/bootstrap-arbitrum-discovery", 
     "bin/bot", 
-    "bin/playground", 
+    "bin/playground", "crates/arbitrum", 
     "crates/blockchain",
     "crates/defi/erc20", "crates/defi/price-oracle", "crates/defi/protocols/pancakeswap", 
     "crates/defi/protocols/protocol", "crates/defi/protocols/sushiswap", 
@@ -37,7 +37,9 @@ plutus-token-graph = { path = "crates/token-graph" }
 plutus-monitoring = { path = "crates/monitoring" }
 
 plutus-executor = { path = "crates/executor" }
-plutus-tests = { path = "creates/tests" }
+plutus-tests = { path = "crates/tests" }
+
+plutus-arbitrum = { path = "crates/arbitrum" }
 
 futures = "0.3.31"
 petgraph = "0.7.1"

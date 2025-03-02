@@ -1,5 +1,7 @@
 pub mod health;
 
+use std::time::Instant;
+
 use alloy::{
     primitives::{U256, map::AddressMap},
     providers::{Provider, ext::DebugApi},
@@ -75,6 +77,8 @@ impl<P: Provider + Clone + 'static> StateMonitor<P> {
     }
 
     pub async fn get_state_changes(&self, block_header: Header) -> StateChange {
+        let now = Instant::now();
+
         let changes = self
             .provider
             .debug_trace_block_by_number(block_header.number.into(), TRACING_OPTIONS.clone())
@@ -109,6 +113,8 @@ impl<P: Provider + Clone + 'static> StateMonitor<P> {
                 }))
             })
             .collect();
+
+        tracing::info!("get_state_changes: {:?}", now.elapsed());
 
         StateChange {
             block_header,

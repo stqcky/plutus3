@@ -46,8 +46,6 @@ async fn token_graph_state_validity_realtime() -> anyhow::Result<()> {
 
     let mut blocks_checked = 0;
 
-    let mut jobs = vec![];
-
     while let Some(state_change) = state_rx.recv().await {
         let block = state_change.block_header.number;
         assert_eq!(block, start_block + blocks_checked + 1, "not sequential");
@@ -58,7 +56,9 @@ async fn token_graph_state_validity_realtime() -> anyhow::Result<()> {
             .apply_state(state_change.changes, provider.clone(), block.into())
             .await;
 
-        jobs.push(health_monitor.check_health(block, token_graph.pools.clone()));
+        health_monitor
+            .check_health(block, token_graph.pools.clone())
+            .await??;
 
         blocks_checked += 1;
 
@@ -66,11 +66,6 @@ async fn token_graph_state_validity_realtime() -> anyhow::Result<()> {
             break;
         }
     }
-
-    future::try_join_all(jobs)
-        .await?
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(())
 }

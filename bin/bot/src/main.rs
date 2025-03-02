@@ -6,7 +6,8 @@ use std::{sync::Arc, time::Instant};
 use alloy::{
     eips::BlockId,
     network::EthereumWallet,
-    providers::{Provider, ProviderBuilder},
+    primitives::{Address, U256},
+    providers::{Provider, ProviderBuilder, WalletProvider},
     rpc::client::ClientBuilder,
     signers::local::PrivateKeySigner,
 };
@@ -43,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
     let provider = Arc::new(
         ProviderBuilder::new()
             .with_recommended_fillers()
-            .wallet(wallet)
+            .wallet(wallet.clone())
             .on_client(
                 ClientBuilder::default()
                     .ipc(dotenv!("IPC_PROVIDER").to_string().into())
@@ -115,10 +116,16 @@ async fn main() -> anyhow::Result<()> {
     let health_monitor = HealthMonitor::new(provider.clone());
     let mut last_health_check = Instant::now();
 
-    let executor = Executor::new(provider.clone()).await?;
+    let mut executor = Executor::new(
+        provider
+            .get_transaction_count(provider.default_signer_address())
+            .await?,
+        plutus_arbitrum::create_provider(wallet),
+    )
+    .await?;
 
     while let Some(state_change) = state_rx.recv().await {
-        // let now = Instant::now();
+        let now = Instant::now();
         let current_block = state_change.block_header.number;
 
         let catching_up = current_block < provider.get_block_number().await?;
@@ -129,36 +136,46 @@ async fn main() -> anyhow::Result<()> {
         );
         let current_block: BlockId = current_block.into();
 
-        let affected_tokens = token_graph
+        let now_apply_state = Instant::now();
+        let (affected_tokens, affected_pools) = token_graph
             .apply_state(state_change.changes, provider.clone(), current_block)
             .await;
+        tracing::info!("token_graph.apply_state in {:?}", now_apply_state.elapsed());
 
         if catching_up {
             continue;
         }
 
         if last_health_check.elapsed().as_secs() >= 2 {
-            health_monitor
-                .check_health(state_change.block_header.number, token_graph.pools.clone());
+            // health_monitor
+            //     .check_health(state_change.block_header.number, token_graph.pools.clone());
 
             last_health_check = Instant::now();
         }
 
-        let now = Instant::now();
+        let now_find_opportunities = Instant::now();
         let opportunities = token_graph
-            .find_opportunities(affected_tokens.clone(), current_block, provider.clone())
+            .find_opportunities(
+                affected_tokens.clone(),
+                affected_pools,
+                current_block,
+                provider.clone(),
+            )
             .await?;
-
-        tracing::info!("find_opportunities: {:?}", now.elapsed());
+        tracing::info!(
+            "token_graph.find_opportunities: {:?}",
+            now_find_opportunities.elapsed()
+        );
 
         if opportunities.len() == 0 {
-            tracing::warn!("no opportunities");
+            // tracing::warn!("no opportunities");
         }
 
         // tracing::info!("found opportunities in {:?}", now.elapsed());
 
         let mut opportunities_with_usd = vec![];
 
+        let now_prices = Instant::now();
         for opportunity in opportunities {
             let usd_price = price_oracle
                 .clone()
@@ -168,6 +185,7 @@ async fn main() -> anyhow::Result<()> {
 
             opportunities_with_usd.push((opportunity, usd_value));
         }
+        tracing::info!("got prices in {:?}", now.elapsed());
 
         opportunities_with_usd.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
@@ -175,14 +193,34 @@ async fn main() -> anyhow::Result<()> {
             let opportunity = &best_opportunity.0;
             let usd_value = best_opportunity.1;
 
-            tracing::info!("${}", usd_value);
-            // if usd_value >= 0.011 {
-            if usd_value >= 1.0 {
+            // tracing::info!(
+            //     "ETH: {}",
+            //     price_oracle.clone().get_eth_price(U256::from(1e18)).await
+            // );
+
+            // if let Ok(gas) = executor
+            //     .estimate_gas(opportunity, provider.default_signer_address())
+            //     .await
+            // {
+            //     tracing::info!("gas: {gas} {}", gas);
+            //     let gas_price = price_oracle.clone().get_eth_price(U256::from(gas)).await;
+            //     tracing::info!("gas price: ${gas_price}");
+            // } else {
+            //     tracing::error!("gas error");
+            // }
+            if usd_value >= 0.011 {
+                tracing::info!("${}", usd_value);
+
+                // provider.send_
+
                 tracing::info!("{}", opportunity);
+                tracing::info!("starting execution, {:?}", now.elapsed());
+                let now = Instant::now();
                 _ = executor
                     .execute(opportunity)
                     .await
                     .inspect_err(|err| tracing::error!("{err}"));
+                tracing::info!("executed in {:?}", now.elapsed());
 
                 // panic!("yo");
             }

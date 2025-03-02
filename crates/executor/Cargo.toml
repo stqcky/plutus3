@@ -13,3 +13,4 @@ plutus-defi-erc20.workspace = true
 plutus-evm.workspace = true
 hex.workspace = true
 dotenvy_macro.workspace = true
+tracing.workspace = true

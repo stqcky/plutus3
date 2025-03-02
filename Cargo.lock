@@ -1096,6 +1096,7 @@ dependencies = [
  "anyhow",
  "dotenvy_macro",
  "futures",
+ "plutus-arbitrum",
  "plutus-blockchain",
  "plutus-defi-erc20",
  "plutus-defi-price-oracle",
@@ -3143,6 +3144,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "plutus-arbitrum"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+]
+
+[[package]]
 name = "plutus-blockchain"
 version = "0.1.0"
 dependencies = [
@@ -3297,6 +3305,7 @@ dependencies = [
  "plutus-defi-protocols-uniswap",
  "plutus-evm",
  "plutus-token-graph",
+ "tracing",
 ]
 
 [[package]]

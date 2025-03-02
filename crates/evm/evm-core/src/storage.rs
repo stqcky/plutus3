@@ -31,6 +31,7 @@ impl SmartContractStorage {
             }
         };
 
+        // println!("CACHE MISS");
         let value = provider
             .get_storage_at(self.address, slot)
             .block_id(block)

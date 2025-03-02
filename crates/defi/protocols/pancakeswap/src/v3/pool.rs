@@ -168,6 +168,11 @@ impl PancakeSwapV3Pool {
     ) -> Result<Self, alloy::contract::Error> {
         let instance = IPancakeSwapV3PoolInstance::new(address, &provider);
 
+        let storage = SmartContractStorage::new(address);
+        storage
+            .get_consecutive(SLOT0_SLOT, 2, block, &provider)
+            .await?;
+
         Ok(Self {
             address,
             token0: ERC20::new_with_provider(
@@ -208,7 +213,7 @@ impl PancakeSwapV3Pool {
 
             ticks: SolidityMapping::new(),
             tick_bitmap: SolidityMapping::new(),
-            storage: SmartContractStorage::new(address),
+            storage,
         })
     }
 
