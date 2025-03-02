@@ -115,12 +115,11 @@ async fn optimize_profit<P: Provider + Clone>(
     let max_iter = 50;
 
     let two = uint!(2_U256);
+    let three = uint!(3_U256);
 
     for _ in 0..max_iter {
-        let middle = (lower_bound + upper_bound) / two;
-
-        let point_lower = lower_bound + (middle - lower_bound) / two;
-        let point_higher = middle + (upper_bound - middle) / two;
+        let point_lower = lower_bound + (upper_bound - lower_bound) / three;
+        let point_higher = upper_bound - (upper_bound - lower_bound) / three;
 
         if point_higher - point_lower <= precision {
             break;
@@ -132,9 +131,9 @@ async fn optimize_profit<P: Provider + Clone>(
         // tracing::info!("{lower_profit:?} {upper_profit:?}");
 
         if lower_profit > upper_profit {
-            upper_bound = middle;
+            upper_bound = point_higher;
         } else {
-            lower_bound = middle;
+            lower_bound = point_lower;
         }
     }
 

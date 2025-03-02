@@ -25,7 +25,7 @@ pub struct ExecutionStep {
     data: Vec<u8>,
 }
 
-impl<T: Transport + Clone, P: Provider<T> + Clone + WalletProvider> Executor<T, P> {
+impl<T: Transport + Clone, P: Provider<T> + Clone + WalletProvider + 'static> Executor<T, P> {
     pub async fn new(nonce: u64, provider: P) -> anyhow::Result<Self> {
         let contract = IExecutor::new(
             dotenv!("EXECUTOR_DEPLOYMENT_ADDRESS").parse().unwrap(),
@@ -84,10 +84,16 @@ impl<T: Transport + Clone, P: Provider<T> + Clone + WalletProvider> Executor<T, 
         self.nonce += 1;
 
         let now_send = Instant::now();
-        let pending_tx = self.provider.send_raw_transaction(&tx_encoded).await?;
-        tracing::info!("sent in {:?}", now_send.elapsed());
 
-        tracing::info!("constructed and sent raw tx in {:?}", now.elapsed());
+        let provider = self.provider.clone();
+        tokio::spawn(async move {
+            let pending_tx = provider
+                .send_raw_transaction(&tx_encoded)
+                .await
+                .inspect_err(|err| tracing::error!("{err}"));
+
+            tracing::info!("sent in {:?}", now_send.elapsed());
+        });
         // tracing::info!("{}", pending_tx)
 
         Ok(())

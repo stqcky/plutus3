@@ -9,6 +9,7 @@ use std::{sync::Arc, time::Instant};
 use petgraph::{
     dot::Dot,
     graph::{DiGraph, EdgeIndex, NodeIndex},
+    visit::EdgeRef as _,
 };
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::pool::LiquidityPool;
@@ -128,6 +129,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
     where
         P: Clone,
     {
+        // TODO: parallelize this
         let mut changes = AddressMap::<HashMap<U256, U256>>::default();
 
         for trace in traces {
@@ -198,7 +200,11 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         provider: P,
     ) -> anyhow::Result<Vec<CalculatedOpportunity<P>>> {
         let now = Instant::now();
-        let opportunities = self.simple_finding(target_tokens, target_pools);
+        let opportunities: Vec<_> = self
+            .simple_finding(target_tokens, target_pools)
+            .into_iter()
+            .take(10)
+            .collect();
         tracing::info!("simple_finding: {:?}", now.elapsed());
 
         tracing::info!("opportunity count: {}", opportunities.len());
@@ -228,21 +234,40 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         Ok(opportunities)
     }
 
+    fn precompute_cycle_pools(&self) -> HashMap<(NodeIndex, NodeIndex), WeightedPool> {
+        let mut cache = HashMap::default();
+
+        for edge in self.graph.edge_references() {
+            let pair = (edge.source(), edge.target());
+
+            cache
+                .entry(pair)
+                .and_modify(|e: &mut WeightedPool| {
+                    if edge.weight().weight > e.weight {
+                        *e = edge.weight().to_owned();
+                    }
+                })
+                .or_insert_with(|| edge.weight().to_owned());
+        }
+
+        cache
+    }
+
     pub fn simple_finding(
         &self,
         target_tokens: AddressSet,
         target_pools: AddressSet,
     ) -> Vec<Vec<OpportunityLeg<P>>> {
         let now = Instant::now();
-        let cycles: Vec<_> = dedup_cycles(
-            target_tokens
-                .iter()
-                .flat_map(|address| self.cycles[address].clone())
-                .collect(),
-        );
+        let cycles: Vec<_> = target_tokens
+            .iter()
+            .flat_map(|address| self.cycles[address].clone())
+            .collect();
         // println!("dedup_cycles: {:?}", now.elapsed());
 
-        // tracing::info!("cycle count: {}", cycles.len());
+        // println!("cycle count: {}", cycles.len());
+
+        let best_pools = self.precompute_cycle_pools();
 
         let now = Instant::now();
         let mut opportunities: Vec<_> = cycles
@@ -256,34 +281,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
                 for pair in cycle.windows(2) {
                     let (node0, node1) = (pair[0], pair[1]);
 
-                    let pools: Vec<_> = self
-                        .graph
-                        .edges_connecting(node0, node1)
-                        .map(|edge| edge.weight().clone())
-                        .collect();
-
-                    // let targeted_pools = pools
-                    //     .iter()
-                    //     .filter(|pool| target_pools.contains(&pool.pool))
-                    //     .collect::<Vec<_>>();
-                    //
-                    // let best_pool = if !targeted_pools.is_empty() {
-                    //     targeted_pools
-                    //         .into_iter()
-                    //         .max_by(|&a, &b| a.weight.partial_cmp(&b.weight).unwrap())
-                    //         .unwrap()
-                    //         .to_owned()
-                    // } else {
-                    //     pools
-                    //         .into_iter()
-                    //         .max_by(|a, b| a.weight.partial_cmp(&b.weight).unwrap())
-                    //         .unwrap()
-                    // };
-
-                    let best_pool = pools
-                        .into_iter()
-                        .max_by(|a, b| a.weight.partial_cmp(&b.weight).unwrap())
-                        .unwrap();
+                    let best_pool = &best_pools[&(node0, node1)];
 
                     target_pool_included |= target_pools.contains(&best_pool.pool);
 
@@ -302,6 +300,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         // println!("finding: {:?}", now.elapsed());
 
         let now = Instant::now();
+
         opportunities.sort_by(|a, b| match PartialOrd::partial_cmp(&b.0, &a.0) {
             Some(ordering) => ordering,
             None => unreachable!(),
@@ -359,12 +358,16 @@ async fn init_edges<P: Provider + Clone + 'static>(
 ) -> anyhow::Result<AddressMap<(EdgeIndex, EdgeIndex)>> {
     let mut edge_map = AddressMap::default();
 
+    let semaphore = Arc::new(Semaphore::new(24));
     let tasks: Vec<_> = pools
         .into_iter()
         .map(|pool| {
+            let semaphore = semaphore.clone();
             let provider = provider.clone();
 
             tokio::spawn(async move {
+                let _permit = semaphore.acquire_owned().await.unwrap();
+
                 let tokens = pool.tokens();
                 let (token0, token1) = (tokens.0.to_owned(), tokens.1.to_owned());
 

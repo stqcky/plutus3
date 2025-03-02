@@ -3314,6 +3314,7 @@ dependencies = [
  "plutus-defi-protocols-uniswap",
  "plutus-evm",
  "plutus-token-graph",
+ "tokio",
  "tracing",
 ]
 

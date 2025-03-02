@@ -70,48 +70,31 @@ fn create_cycle_key(path: &[NodeIndex]) -> CycleKey {
     }
 }
 
-fn create_sorted_node_path(path: &[NodeIndex]) -> Vec<NodeIndex> {
-    let mut nodes = HashSet::<NodeIndex>::new();
-
-    for node in path {
-        nodes.insert(*node);
-    }
-
-    let mut nodes = Vec::from_iter(nodes);
-    nodes.sort();
-
-    nodes
-}
-
 pub fn dedup_cycles(cycles: Vec<Vec<NodeIndex>>) -> Vec<Vec<NodeIndex>> {
-    let mut seen = FxHashSet::default();
-    let mut filtered = Vec::with_capacity(cycles.len());
-
-    for cycle in cycles {
-        let key = create_cycle_key(&cycle);
-
-        if seen.insert(key) {
-            filtered.push(cycle);
-        }
-    }
-
-    filtered
+    // let mut seen = FxHashSet::default();
+    // let mut filtered = Vec::with_capacity(cycles.len());
+    //
+    // for cycle in cycles {
+    //     let key = create_cycle_key(&cycle);
+    //
+    //     if seen.insert(key) {
+    //         filtered.push(cycle);
+    //     }
+    // }
+    //
+    // filtered
+    cycles
+        .into_par_iter()
+        .fold(
+            || (FxHashSet::default(), Vec::new()),
+            |(mut seen, mut filtered), cycle| {
+                if seen.insert(create_cycle_key(&cycle)) {
+                    filtered.push(cycle);
+                }
+                (seen, filtered)
+            },
+        )
+        .map(|(_, filtered)| filtered)
+        .flatten()
+        .collect()
 }
-
-// pub fn dedup_cycles(cycles: Vec<Vec<NodeIndex>>) -> Vec<Vec<NodeIndex>> {
-//     // return cycles;
-//     let mut sorted_cycles: HashSet<Vec<NodeIndex>> = HashSet::new();
-//
-//     let mut filtered = vec![];
-//
-//     for cycle in cycles {
-//         let sorted = create_sorted_node_path(&cycle);
-//
-//         if !sorted_cycles.contains(&sorted) {
-//             sorted_cycles.insert(sorted);
-//             filtered.push(cycle);
-//         }
-//     }
-//
-//     filtered
-// }
