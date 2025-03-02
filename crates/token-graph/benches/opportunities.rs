@@ -143,17 +143,20 @@ fn criterion_benchmark(c: &mut Criterion) -> anyhow::Result<()> {
         )
     });
 
-    let targets = AddressSet::from_iter([address!("82aF49447D8a07e3bd95BD0d56f35241523fBab1")]);
+    let target_tokens =
+        AddressSet::from_iter([address!("82aF49447D8a07e3bd95BD0d56f35241523fBab1")]);
 
-    // c.bench_function("find_uncalculated_opportunities", |b| {
-    //     b.to_async(&runtime)
-    //         .iter(|| token_graph.find_uncalculated_opportunities(targets.clone()))
-    // });
+    let target_pools =
+        AddressSet::from_iter(pools.iter().map(|pool| pool.address()).collect::<Vec<_>>());
 
-    c.bench_function("calculate_opportunity", |b| {
-        b.to_async(&runtime)
-            .iter(|| calculate_opportunity(opportunity.clone(), block.into(), provider.clone()))
+    c.bench_function("find_uncalculated_opportunities", |b| {
+        b.iter(|| token_graph.simple_finding(target_tokens.clone(), target_pools.clone()))
     });
+
+    // c.bench_function("calculate_opportunity", |b| {
+    //     b.to_async(&runtime)
+    //         .iter(|| calculate_opportunity(opportunity.clone(), block.into(), provider.clone()))
+    // });
 
     // let mut group = c.benchmark_group("small");
     // group.sample_size(10);

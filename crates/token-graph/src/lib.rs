@@ -228,32 +228,33 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         Ok(opportunities)
     }
 
-    fn simple_finding(
+    pub fn simple_finding(
         &self,
         target_tokens: AddressSet,
         target_pools: AddressSet,
     ) -> Vec<Vec<OpportunityLeg<P>>> {
+        let now = Instant::now();
         let cycles: Vec<_> = dedup_cycles(
             target_tokens
                 .iter()
                 .flat_map(|address| self.cycles[address].clone())
                 .collect(),
         );
+        // println!("dedup_cycles: {:?}", now.elapsed());
 
         // tracing::info!("cycle count: {}", cycles.len());
 
+        let now = Instant::now();
         let mut opportunities: Vec<_> = cycles
             .par_iter()
             .filter_map(|cycle| {
                 let mut steps = vec![];
                 let mut profit = 1.0;
 
-                let mut target_token_included = false;
                 let mut target_pool_included = false;
 
                 for pair in cycle.windows(2) {
                     let (node0, node1) = (pair[0], pair[1]);
-                    let (token0, token1) = (self.graph[node0].address, self.graph[node1].address);
 
                     let pools: Vec<_> = self
                         .graph
@@ -284,9 +285,6 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
                         .max_by(|a, b| a.weight.partial_cmp(&b.weight).unwrap())
                         .unwrap();
 
-                    target_token_included |=
-                        target_tokens.contains(&token0) || target_tokens.contains(&token1);
-
                     target_pool_included |= target_pools.contains(&best_pool.pool);
 
                     profit *= best_pool.weight;
@@ -294,14 +292,16 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
                     steps.push((node0, node1, best_pool.pool));
                 }
 
-                if profit > 1.0 && target_token_included && target_pool_included {
+                if profit > 1.0 && target_pool_included {
                     Some((profit, steps))
                 } else {
                     None
                 }
             })
             .collect();
+        // println!("finding: {:?}", now.elapsed());
 
+        let now = Instant::now();
         opportunities.sort_by(|a, b| match PartialOrd::partial_cmp(&b.0, &a.0) {
             Some(ordering) => ordering,
             None => unreachable!(),
@@ -322,6 +322,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
+        // println!("other: {:?}", now.elapsed());
 
         opportunities
     }
