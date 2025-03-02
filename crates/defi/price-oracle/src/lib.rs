@@ -93,7 +93,7 @@ impl<P: Provider + Clone + 'static> PriceOracle<P> {
 
         match cache.get(&token.address) {
             Some((price, timestamp)) if timestamp.elapsed() < CACHE_TTL => Some(*price),
-            Some((price, timestamp)) if timestamp.elapsed() < CACHE_TTL * 2 => {
+            Some((price, _)) => {
                 let oracle = self.clone();
                 let token = token.to_owned();
 

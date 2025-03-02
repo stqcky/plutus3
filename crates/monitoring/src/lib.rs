@@ -114,7 +114,7 @@ impl<P: Provider + Clone + 'static> StateMonitor<P> {
             })
             .collect();
 
-        tracing::info!("get_state_changes: {:?}", now.elapsed());
+        // tracing::info!("get_state_changes: {:?}", now.elapsed());
 
         StateChange {
             block_header,
