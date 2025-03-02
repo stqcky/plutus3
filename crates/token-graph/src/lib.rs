@@ -2,6 +2,7 @@ use calculation::{CalculatedOpportunity, calculate_opportunity};
 use core::f64;
 use futures::future;
 use hashbrown::{HashMap, HashSet};
+use plutus_defi_price_oracle::PriceOracle;
 use rayon::prelude::*;
 use simple_cycles::{create_simple_cycles, dedup_cycles};
 use std::{sync::Arc, time::Instant};
@@ -200,11 +201,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         provider: P,
     ) -> anyhow::Result<Vec<CalculatedOpportunity<P>>> {
         let now = Instant::now();
-        let opportunities: Vec<_> = self
-            .simple_finding(target_tokens, target_pools)
-            .into_iter()
-            .take(10)
-            .collect();
+        let opportunities = self.simple_finding(target_tokens, target_pools);
         tracing::info!("simple_finding: {:?}", now.elapsed());
 
         tracing::info!("opportunity count: {}", opportunities.len());
@@ -229,12 +226,13 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             .into_iter()
             .filter_map(|x| x)
             .collect();
+
         tracing::info!("calculations took {:?}", now.elapsed());
 
         Ok(opportunities)
     }
 
-    fn precompute_cycle_pools(&self) -> HashMap<(NodeIndex, NodeIndex), WeightedPool> {
+    fn precompute_cycle_pools(&self) -> HashMap<(NodeIndex, NodeIndex), &WeightedPool> {
         let mut cache = HashMap::default();
 
         for edge in self.graph.edge_references() {
@@ -242,12 +240,12 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
 
             cache
                 .entry(pair)
-                .and_modify(|e: &mut WeightedPool| {
+                .and_modify(|e: &mut &WeightedPool| {
                     if edge.weight().weight > e.weight {
-                        *e = edge.weight().to_owned();
+                        *e = edge.weight();
                     }
                 })
-                .or_insert_with(|| edge.weight().to_owned());
+                .or_insert_with(|| edge.weight());
         }
 
         cache
@@ -306,10 +304,10 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             None => unreachable!(),
         });
 
-        let opportunities: Vec<_> = opportunities.into_iter().map(|a| a.1).collect();
+        let opportunities: Vec<_> = opportunities.into_iter().map(|a| a.1).take(10).collect();
 
         let opportunities = opportunities
-            .into_iter()
+            .into_par_iter()
             .map(|steps| {
                 steps
                     .into_iter()

@@ -3381,6 +3381,7 @@ dependencies = [
  "hashbrown 0.15.2",
  "petgraph",
  "plutus-defi-erc20",
+ "plutus-defi-price-oracle",
  "plutus-defi-protocols-protocol",
  "plutus-defi-protocols-uniswap",
  "plutus-evm",
