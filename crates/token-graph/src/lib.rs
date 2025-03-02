@@ -33,7 +33,7 @@ pub struct TokenGraph<P: Provider> {
     // just store addresses instead of whole objects?
     graph: InnerTokenGraph,
     pool_edge_map: AddressMap<(EdgeIndex, EdgeIndex)>,
-    // token_map: AddressMap<NodeIndex>,
+    token_map: AddressMap<NodeIndex>,
     cycles: AddressMap<Vec<Vec<NodeIndex>>>,
 
     amount: f64,
@@ -104,9 +104,19 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             cycles: create_simple_cycles(&graph),
             graph,
             pool_edge_map,
-            // token_map,
+            token_map,
             amount,
         })
+    }
+
+    pub fn get_tokens(&self) -> Vec<ERC20> {
+        let mut tokens = vec![];
+
+        for (_, node) in &self.token_map {
+            tokens.push(self.graph[*node].to_owned());
+        }
+
+        tokens
     }
 
     pub async fn apply_state(

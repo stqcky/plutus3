@@ -10,6 +10,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use tokio::sync::Semaphore;
 
 use alloy::{primitives::Address, providers::Provider};
 use lru::LruCache;
@@ -30,7 +31,7 @@ pub struct PriceOracle<P> {
     weth: ERC20,
 }
 
-const CACHE_TTL: Duration = Duration::from_secs(30);
+const CACHE_TTL: Duration = Duration::from_secs(120);
 
 impl<P: Provider + Clone + 'static> PriceOracle<P> {
     pub async fn new(provider: P) -> anyhow::Result<Arc<Self>> {
@@ -49,7 +50,27 @@ impl<P: Provider + Clone + 'static> PriceOracle<P> {
             oracle.weth.address,
             oracle.clone().get_uniswap_v3_price(&oracle.weth).await,
         );
+
         Ok(oracle)
+    }
+
+    pub async fn prefetch_prices(self: Arc<Self>, tokens: Vec<ERC20>) {
+        let semaphore = Arc::new(Semaphore::new(24));
+
+        let tasks: Vec<_> = tokens
+            .into_iter()
+            .map(|token| {
+                let semaphore = semaphore.clone();
+                let oracle = self.clone();
+
+                tokio::spawn(async move {
+                    let _permit = semaphore.acquire_owned().await.unwrap();
+                    oracle.get_price(&token).await;
+                })
+            })
+            .collect();
+
+        futures::future::try_join_all(tasks).await.unwrap();
     }
 
     pub async fn get_price(self: Arc<Self>, token: &ERC20) -> f64 {

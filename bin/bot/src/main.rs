@@ -113,6 +113,14 @@ async fn main() -> anyhow::Result<()> {
 
     let price_oracle = PriceOracle::new(provider.clone()).await?;
 
+    tracing::info!("prefetching prices");
+    let now = Instant::now();
+    price_oracle
+        .clone()
+        .prefetch_prices(token_graph.get_tokens())
+        .await;
+    tracing::info!("prefetched prices in {:?}", now.elapsed());
+
     let health_monitor = HealthMonitor::new(provider.clone());
     let mut last_health_check = Instant::now();
 
@@ -185,7 +193,7 @@ async fn main() -> anyhow::Result<()> {
 
             opportunities_with_usd.push((opportunity, usd_value));
         }
-        tracing::info!("got prices in {:?}", now.elapsed());
+        tracing::info!("got prices in {:?}", now_prices.elapsed());
 
         opportunities_with_usd.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
