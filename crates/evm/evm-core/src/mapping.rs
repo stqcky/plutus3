@@ -1,29 +1,34 @@
-use std::marker::PhantomData;
+use std::hash::Hash;
 
 use alloy::{
     primitives::{Keccak256, Signed, Uint},
     providers::Provider,
 };
-use revm::primitives::{I256, U256};
+use hashbrown::HashMap;
+use parking_lot::RwLock;
+use revm::primitives::{B256, I256, U256, map::B256Map};
 use revm_database::BlockId;
 
 use crate::storage::SmartContractStorage;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub struct SolidityMapping<K, V, const SLOT: u128, const VALUE_SLOT_SIZE: usize = 1> {
+    mapping: RwLock<HashMap<K, V>>,
+    discovered_slots: RwLock<B256Map<K>>,
     slot: [u8; U256::BYTES],
-    _marker: PhantomData<(K, V)>,
 }
 
-impl<K, V, const SLOT: u128, const VALUE_SLOTS: usize> SolidityMapping<K, V, SLOT, VALUE_SLOTS>
+impl<K, V, const SLOT: u128, const VALUE_SLOT_SIZE: usize>
+    SolidityMapping<K, V, SLOT, VALUE_SLOT_SIZE>
 where
-    K: Copy + IntoU256,
-    V: StorageDecodable,
+    K: Eq + Hash + Copy + IntoU256,
+    V: StorageDecodable + Copy,
 {
     pub fn new() -> Self {
         Self {
             slot: U256::from(SLOT).to_be_bytes::<{ U256::BYTES }>(),
-            _marker: PhantomData::default(),
+            mapping: RwLock::new(HashMap::default()),
+            discovered_slots: RwLock::new(B256Map::default()),
         }
     }
 
@@ -34,16 +39,72 @@ where
         block: BlockId,
         provider: P,
     ) -> Result<V, alloy::contract::Error> {
+        {
+            let mapping = self.mapping.read();
+
+            if let Some(value) = mapping.get(k) {
+                return Ok(*value);
+            }
+        };
+
         let slot = self.get_value_storage_slot(k);
 
-        let bytes: Vec<_> = storage
-            .get_consecutive(slot, VALUE_SLOTS, block, provider)
+        self.discover_slot(*k, slot);
+
+        let value = V::decode(
+            self.fetch_value_from_storage(slot, storage, block, provider)
+                .await?,
+        );
+
+        self.mapping.write().insert(*k, value);
+
+        Ok(value)
+    }
+
+    pub fn insert(&self, k: K, v: V) {
+        let slot = self.get_value_storage_slot(&k);
+        self.discover_slot(k, slot);
+
+        self.mapping.write().insert(k, v);
+    }
+
+    pub fn invalidate_many(&self, slots: &[U256]) {
+        let mut mapping = self.mapping.write();
+
+        for slot in slots {
+            if let Some(key) = self.discovered_slots.read().get(&B256::from(*slot)) {
+                mapping.remove(key);
+            }
+        }
+    }
+
+    pub fn invalidate(&self, slot: U256) {
+        if let Some(key) = self.discovered_slots.read().get(&B256::from(slot)) {
+            self.mapping.write().remove(key);
+        }
+    }
+
+    fn discover_slot(&self, key: K, slot: U256) {
+        let mut discovered_slots = self.discovered_slots.write();
+
+        for i in 0..VALUE_SLOT_SIZE {
+            discovered_slots.insert(B256::from(slot + U256::from(i)), key);
+        }
+    }
+
+    async fn fetch_value_from_storage<P: Provider>(
+        &self,
+        slot: U256,
+        storage: &SmartContractStorage,
+        block: BlockId,
+        provider: P,
+    ) -> Result<Vec<u8>, alloy::contract::Error> {
+        Ok(storage
+            .get_consecutive(slot.into(), VALUE_SLOT_SIZE, block, provider)
             .await?
             .into_iter()
             .flat_map(|value| value.to_le_bytes::<{ U256::BYTES }>())
-            .collect();
-
-        Ok(V::decode(bytes))
+            .collect())
     }
 
     fn get_value_storage_slot(&self, k: &K) -> U256 {

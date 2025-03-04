@@ -3,6 +3,7 @@ pub mod fee;
 pub mod pool;
 pub mod quoter;
 pub mod tick_bitmap;
+pub mod tick_lens;
 
 use std::sync::Arc;
 

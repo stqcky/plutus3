@@ -21,6 +21,7 @@ use plutus_defi_protocols_protocol::{SwapDataPayload, pool::LiquidityPool};
 use plutus_defi_protocols_uniswap::v3::{
     pool::{Q128, StepComputations, SwapCalculationCache, SwapState, TickInfo},
     tick_bitmap::next_initialized_tick_within_one_word,
+    tick_lens::TickLens,
 };
 use plutus_evm::{
     mapping::{SolidityMapping, StorageDecodable},
@@ -30,6 +31,7 @@ use uniswap_v3_math::{
     full_math::mul_div,
     liquidity_math::add_delta,
     swap_math::compute_swap_step,
+    tick_bitmap::position,
     tick_math::{
         MAX_SQRT_RATIO, MAX_TICK, MIN_SQRT_RATIO, MIN_TICK, get_sqrt_ratio_at_tick,
         get_tick_at_sqrt_ratio,
@@ -175,7 +177,7 @@ impl PancakeSwapV3Pool {
             .get_consecutive(SLOT0_SLOT, 2, block, &provider)
             .await?;
 
-        Ok(Self {
+        let pool = Self {
             address,
             token0: ERC20::new_with_provider(
                 instance.token0().block(block).call().await?.token0,
@@ -217,7 +219,41 @@ impl PancakeSwapV3Pool {
             tick_bitmap: SolidityMapping::new(),
             storage,
             swap_cache: SwapCalculationCache::default(),
-        })
+        };
+
+        pool.prefetch_ticks(block, provider).await?;
+
+        Ok(pool)
+    }
+
+    async fn prefetch_ticks<P: Provider>(
+        &self,
+        block: BlockId,
+        provider: P,
+    ) -> Result<(), alloy::contract::Error> {
+        let tick = self.slot0.read().tick;
+        let (current_word, _) = position(tick.try_into().unwrap());
+
+        const PREFETCH_AMOUNT: i16 = 5;
+
+        for i in -PREFETCH_AMOUNT..=PREFETCH_AMOUNT {
+            let word = current_word + i;
+
+            self.tick_bitmap
+                .get(&self.storage, &word, block, &provider)
+                .await?;
+
+            let populated_ticks =
+                TickLens::get_populated_ticks_in_word(self.address, word, block, &provider).await?;
+
+            for tick in populated_ticks {
+                self.ticks.insert(tick.tick, TickInfo {
+                    liquidity_net: tick.liquidity_net,
+                })
+            }
+        }
+
+        Ok(())
     }
 
     pub async fn exact_input_of<P: Provider>(
@@ -441,6 +477,8 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV3Pool {
     fn apply_storage_changes(&self, changes: hashbrown::HashMap<U256, U256>) {
         let mut slot0_updated = false;
 
+        let mut changed_slots = vec![];
+
         for (slot, value) in changes {
             match slot {
                 _ if slot == SLOT0_SLOT || slot == SLOT0_SECOND_SLOT => {
@@ -454,9 +492,15 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV3Pool {
                     *self.fee_growth_global_1_x128.write() = value
                 }
                 _ if slot == LIQUIDITY_SLOT => *self.liquidity.write() = value.to(),
-                _ => self.storage.insert(slot, value),
+                _ => {
+                    self.storage.insert(slot, value);
+                    changed_slots.push(slot)
+                }
             }
         }
+
+        self.tick_bitmap.invalidate_many(&changed_slots);
+        self.ticks.invalidate_many(&changed_slots);
 
         if slot0_updated {
             // pancakeswap v3 pool's slot0 is split between 2 slots :)
