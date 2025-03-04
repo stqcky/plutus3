@@ -47,7 +47,7 @@ pub struct UniswapV2Pool {
 
     pub reserves: RwLock<Reserves>,
 
-    swap_cache: SwapCalculationCache,
+    pub swap_cache: SwapCalculationCache,
 }
 
 impl UniswapV2Pool {

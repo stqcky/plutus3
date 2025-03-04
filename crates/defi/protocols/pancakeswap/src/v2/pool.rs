@@ -46,29 +46,40 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV2Pool {
     async fn simulate_swap(
         &self,
         token: Address,
-        amount: U256,
-        _block: BlockId,
+        amount_in: U256,
+        block: BlockId,
         _provider: P,
     ) -> U256 {
-        let (reserve_in, reserve_out) = {
-            let reserves = *self.reserves.read();
+        let zero_for_one = token == self.token0.address;
 
-            if token == self.token0.address {
+        if let Some(amount_out) = self.swap_cache.get(block, zero_for_one, amount_in) {
+            return amount_out;
+        }
+
+        let (reserve_in, reserve_out) = {
+            let reserves = self.reserves.read();
+
+            if zero_for_one {
                 (U256::from(reserves.0), U256::from(reserves.1))
             } else {
                 (U256::from(reserves.1), U256::from(reserves.0))
             }
         };
 
-        if amount.is_zero() || reserve_in.is_zero() || reserve_out.is_zero() {
+        if amount_in.is_zero() || reserve_in.is_zero() || reserve_out.is_zero() {
             return U256::ZERO;
         }
 
-        let amount_in_with_fee = amount * U256::from(9975);
+        let amount_in_with_fee = amount_in * U256::from(9975);
         let numerator = amount_in_with_fee * reserve_out;
         let denominator = reserve_in * U256::from(10000) + amount_in_with_fee;
 
-        numerator / denominator
+        let amount_out = numerator / denominator;
+
+        self.swap_cache
+            .insert(block, zero_for_one, amount_in, amount_out);
+
+        amount_out
     }
 
     fn apply_storage_changes(&self, changes: hashbrown::HashMap<U256, U256>) {
