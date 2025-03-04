@@ -8,7 +8,7 @@ plutus-defi-protocols-protocol.workspace = true
 plutus-defi-erc20.workspace = true
 plutus-evm.workspace = true
 
-alloy = { workspace = true, features = ["providers", "contract"] }
+alloy = { workspace = true, features = ["full"] }
 hashbrown.workspace = true
 lazy_static.workspace = true
 async-trait.workspace = true
@@ -19,3 +19,11 @@ hex.workspace = true
 tokio.workspace = true
 dotenvy_macro.workspace = true
 parking_lot.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "v3"
+harness = false

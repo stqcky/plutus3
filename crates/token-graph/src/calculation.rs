@@ -64,6 +64,11 @@ pub async fn calculate_opportunity<P: Provider + Clone>(
     let amount_in =
         optimize_profit(&opportunity, first_token_decimals, block, provider.clone()).await;
 
+    // tracing::info!(
+    //     "calculate_opportunity: {:?}\n{opportunity:#?}",
+    //     now.elapsed()
+    // );
+
     let mut legs = vec![];
     let mut amount = amount_in;
 
@@ -85,6 +90,7 @@ pub async fn calculate_opportunity<P: Provider + Clone>(
     }
 
     let profit = amount.saturating_sub(amount_in);
+
     if !profit.is_zero() {
         Some(CalculatedOpportunity {
             base_token: legs[0].token_in.to_owned(),
@@ -107,8 +113,18 @@ async fn optimize_profit<P: Provider + Clone>(
             - I256::from_raw(x)
     };
 
+    let (locked0, locked1) = opportunity[0]
+        .pool
+        .tokens_locked(provider.clone())
+        .await
+        .unwrap();
+
+    let zero_for_one = opportunity[0].pool.token0().address == opportunity[0].token0.address;
+
+    let locked = if zero_for_one { locked0 } else { locked1 } / uint!(4_U256);
+
     let mut lower_bound = uint!(0_U256);
-    let mut upper_bound = uint!(100_000_U256) * uint!(10_U256).pow(U256::from(decimals));
+    let mut upper_bound = locked;
 
     let precision = U256::from(decimals);
 
@@ -127,6 +143,7 @@ async fn optimize_profit<P: Provider + Clone>(
 
         let (lower_profit, upper_profit) =
             tokio::join!(get_profit(point_lower), get_profit(point_higher));
+        // tracing::info!("get_profit {:?}", now.elapsed());
 
         // tracing::info!("{lower_profit:?} {upper_profit:?}");
 

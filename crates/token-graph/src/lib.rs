@@ -1,6 +1,6 @@
 use calculation::{CalculatedOpportunity, calculate_opportunity};
 use core::f64;
-use futures::future;
+use futures::{executor::block_on, future};
 use hashbrown::{HashMap, HashSet};
 use plutus_defi_price_oracle::PriceOracle;
 use rayon::prelude::*;
@@ -52,6 +52,19 @@ pub struct OpportunityLeg<P: Provider> {
     pub token0: ERC20,
     pub token1: ERC20,
     pub pool: Arc<dyn LiquidityPool<P>>,
+}
+
+impl<P: Provider> std::fmt::Debug for OpportunityLeg<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} -> {} @ {} {}",
+            self.token0,
+            self.token1,
+            self.pool.identifier(),
+            self.pool.address()
+        )
+    }
 }
 
 pub type Step<P> = OpportunityLeg<P>;
@@ -205,6 +218,29 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         tracing::info!("simple_finding: {:?}", now.elapsed());
 
         tracing::info!("opportunity count: {}", opportunities.len());
+
+        // let mut calculated = vec![];
+        //
+        // let now = Instant::now();
+        // for opportunity in opportunities {
+        //     if let Some(c) = calculate_opportunity(opportunity, block, provider.clone()).await {
+        //         calculated.push(c);
+        //     }
+        // }
+
+        // let now = Instant::now();
+        // let opportunities = opportunities
+        //     .into_par_iter()
+        //     .map_init(
+        //         || provider.clone(),
+        //         |provider, opportunity| {
+        //             block_on(calculate_opportunity(opportunity, block, provider.clone()))
+        //         },
+        //     )
+        //     .collect::<Vec<_>>()
+        //     .into_iter()
+        //     .filter_map(|x| x)
+        //     .collect::<Vec<_>>();
 
         let now = Instant::now();
         let semaphore = Arc::new(Semaphore::new(16));

@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use alloy::providers::Provider;
 use parking_lot::RwLock;
 use revm::primitives::{Address, B256, U256, map::B256Map};
@@ -38,6 +40,7 @@ impl SmartContractStorage {
             .await?;
 
         self.storage.write().insert(slot.into(), value);
+        // tracing::info!("write time {:?}", now.elapsed());
 
         Ok(value)
     }

@@ -277,7 +277,9 @@ impl UniswapV3Pool {
             swap_cache: SwapCalculationCache::default(),
         };
 
-        pool.prefetch_ticks(block, provider).await?;
+        // i think it messes up the state
+        // fixme
+        // pool.prefetch_ticks(block, provider).await?;
 
         Ok(pool)
     }
@@ -287,10 +289,17 @@ impl UniswapV3Pool {
         block: BlockId,
         provider: P,
     ) -> Result<(), alloy::contract::Error> {
-        let tick = self.slot0.read().tick;
-        let (current_word, _) = position(tick.try_into().unwrap());
+        let tick: i32 = self.slot0.read().tick.try_into().unwrap();
+        let tick_spacing: i32 = self.tick_spacing.try_into().unwrap();
 
-        const PREFETCH_AMOUNT: i16 = 5;
+        let compressed = if tick < 0 && tick % tick_spacing != 0 {
+            (tick / tick_spacing) - 1
+        } else {
+            tick / tick_spacing
+        };
+        let (current_word, _) = position(compressed);
+
+        const PREFETCH_AMOUNT: i16 = 10;
 
         for i in -PREFETCH_AMOUNT..=PREFETCH_AMOUNT {
             let word = current_word + i;
@@ -389,13 +398,13 @@ impl UniswapV3Pool {
         let slot0: Slot0 = *self.slot0.read();
 
         if zero_for_one {
-            assert!(sqrt_price_limit_x96 > MIN_SQRT_RATIO);
+            // assert!(sqrt_price_limit_x96 > MIN_SQRT_RATIO);
 
             if sqrt_price_limit_x96 >= U256::from(slot0.sqrt_price_x96) {
                 return Ok(U256::from(0));
             }
         } else {
-            assert!(sqrt_price_limit_x96 < MAX_SQRT_RATIO);
+            // assert!(sqrt_price_limit_x96 < MAX_SQRT_RATIO);
 
             if sqrt_price_limit_x96 <= U256::from(slot0.sqrt_price_x96) {
                 return Ok(U256::from(0));

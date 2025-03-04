@@ -1,4 +1,8 @@
-use alloy::{eips::BlockId, primitives::address};
+use alloy::{
+    eips::BlockId,
+    primitives::{U256, address},
+    providers::Provider,
+};
 use plutus_defi_protocols_protocol::pool::LiquidityPool;
 use std::{sync::Arc, time::Instant};
 
@@ -28,6 +32,11 @@ async fn main() -> anyhow::Result<()> {
     )
     .await?;
 
+    let now = Instant::now();
+    provider.get_storage_at(pool.address, U256::ZERO).await?;
+    tracing::info!("{:?}", now.elapsed());
+
+    tracing::info!("1");
     let now = Instant::now();
     pool.simulate_swap(
         pool.token0.address,
