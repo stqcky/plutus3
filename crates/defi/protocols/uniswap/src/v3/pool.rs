@@ -7,8 +7,8 @@ use IUniswapV3Pool::{IUniswapV3PoolInstance, slot0Return};
 use alloy::{
     eips::BlockId,
     primitives::{
-        Address, BlockNumber, I128, I256, U8, U16, U32, U128, U160, U256,
-        aliases::{I24, I56, U24, U56},
+        Address, BlockNumber, I128, I256, U8, U16, U128, U160, U256,
+        aliases::{I24, U24},
     },
     providers::Provider,
     sol, uint,
@@ -168,14 +168,7 @@ pub struct UniswapV3Pool {
 
 #[derive(Debug, Clone, Copy)]
 pub struct TickInfo {
-    pub liquidity_gross: u128,
     pub liquidity_net: i128,
-    pub fee_growth_outside_0_x128: U256,
-    pub fee_growth_outside_1_x128: U256,
-    pub tick_cumulative_outside: I56,
-    pub seconds_per_liquidity_outside_x128: U160,
-    pub seconds_outside: u32,
-    pub initialized: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -728,25 +721,16 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
 
 impl StorageDecodable for TickInfo {
     fn decode(bytes: Vec<u8>) -> Self {
-        let (liquidity_gross, bytes) = bytes.split_at(U128::BYTES);
-        let (liquidity_net, bytes) = bytes.split_at(I128::BYTES);
-        let (fee_growth_outside_0_x128, bytes) = bytes.split_at(U256::BYTES);
-        let (fee_growth_outside_1_x128, bytes) = bytes.split_at(U256::BYTES);
-        let (tick_cumulative_outside, bytes) = bytes.split_at(I56::BYTES);
-        let (seconds_per_liquidity_outside_x128, bytes) = bytes.split_at(U160::BYTES);
-        let (seconds_outside, initialized) = bytes.split_at(U32::BYTES);
+        let (_liquidity_gross, bytes) = bytes.split_at(U128::BYTES);
+        let (liquidity_net, _) = bytes.split_at(I128::BYTES);
+        // let (fee_growth_outside_0_x128, bytes) = bytes.split_at(U256::BYTES);
+        // let (fee_growth_outside_1_x128, bytes) = bytes.split_at(U256::BYTES);
+        // let (tick_cumulative_outside, bytes) = bytes.split_at(I56::BYTES);
+        // let (seconds_per_liquidity_outside_x128, bytes) = bytes.split_at(U160::BYTES);
+        // let (seconds_outside, initialized) = bytes.split_at(U32::BYTES);
 
         Self {
-            liquidity_gross: u128::from_le_bytes(liquidity_gross.try_into().unwrap()),
             liquidity_net: i128::from_le_bytes(liquidity_net.try_into().unwrap()),
-            fee_growth_outside_0_x128: U256::from_le_slice(fee_growth_outside_0_x128),
-            fee_growth_outside_1_x128: U256::from_le_slice(fee_growth_outside_1_x128),
-            tick_cumulative_outside: I56::from_raw(U56::from_le_slice(tick_cumulative_outside)),
-            seconds_per_liquidity_outside_x128: U160::from_le_slice(
-                seconds_per_liquidity_outside_x128,
-            ),
-            seconds_outside: u32::from_le_bytes(seconds_outside.try_into().unwrap()),
-            initialized: initialized[0] != 0,
         }
     }
 }

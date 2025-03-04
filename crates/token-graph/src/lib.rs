@@ -304,7 +304,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             None => unreachable!(),
         });
 
-        let opportunities: Vec<_> = opportunities.into_iter().map(|a| a.1).take(10).collect();
+        let opportunities: Vec<_> = opportunities.into_iter().map(|a| a.1).collect();
 
         let opportunities = opportunities
             .into_par_iter()
