@@ -17,6 +17,8 @@ use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::{SwapDataPayload, pool::LiquidityPool};
 use plutus_evm::storage::FromStorageValue;
 
+use crate::v3::pool::SwapCalculationCache;
+
 sol!(
     #[sol(rpc)]
     contract IUniswapV2Pool {
@@ -44,6 +46,8 @@ pub struct UniswapV2Pool {
     pub token1: ERC20,
 
     pub reserves: RwLock<Reserves>,
+
+    swap_cache: SwapCalculationCache,
 }
 
 impl UniswapV2Pool {
@@ -69,10 +73,27 @@ impl UniswapV2Pool {
             )
             .await?,
             reserves: RwLock::new(Reserves(reserves._reserve0, reserves._reserve1)),
+            swap_cache: SwapCalculationCache::default(),
         })
     }
 
-    pub fn swap(amount_in: U256, reserve_in: U256, reserve_out: U256) -> U256 {
+    pub fn swap(&self, token: Address, amount_in: U256, block: BlockId) -> U256 {
+        let zero_for_one = token == self.token0.address;
+
+        if let Some(amount_out) = self.swap_cache.get(block, zero_for_one, amount_in) {
+            return amount_out;
+        }
+
+        let (reserve_in, reserve_out) = {
+            let reserves = self.reserves.read();
+
+            if zero_for_one {
+                (U256::from(reserves.0), U256::from(reserves.1))
+            } else {
+                (U256::from(reserves.1), U256::from(reserves.0))
+            }
+        };
+
         if amount_in.is_zero() || reserve_in.is_zero() || reserve_out.is_zero() {
             return U256::ZERO;
         }
@@ -81,7 +102,12 @@ impl UniswapV2Pool {
         let numerator = amount_in_with_fee * reserve_out;
         let denominator = reserve_in * U256::from(1000) + amount_in_with_fee;
 
-        numerator / denominator
+        let amount_out = numerator / denominator;
+
+        self.swap_cache
+            .insert(block, zero_for_one, amount_in, amount_out);
+
+        amount_out
     }
 }
 
@@ -102,20 +128,10 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
         &self,
         token: Address,
         amount: U256,
-        _block: BlockId,
+        block: BlockId,
         _provider: P,
     ) -> U256 {
-        let (reserve_in, reserve_out) = {
-            let reserves = self.reserves.read();
-
-            if token == self.token0.address {
-                (reserves.0, reserves.1)
-            } else {
-                (reserves.1, reserves.0)
-            }
-        };
-
-        Self::swap(amount, U256::from(reserve_in), U256::from(reserve_out))
+        self.swap(token, amount, block)
     }
 
     fn apply_storage_changes(&self, changes: hashbrown::HashMap<U256, U256>) {
