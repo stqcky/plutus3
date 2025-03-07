@@ -65,7 +65,9 @@ impl<P: Provider + Clone + 'static> PriceOracle<P> {
 
                 tokio::spawn(async move {
                     let _permit = semaphore.acquire_owned().await.unwrap();
-                    oracle.get_price(&token).await;
+
+                    let price = oracle.clone().get_uniswap_v3_price(&token).await;
+                    oracle.cache_price(token.address, price);
                 })
             })
             .collect();
