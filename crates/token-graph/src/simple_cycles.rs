@@ -1,12 +1,14 @@
 use std::hash::{Hash, Hasher};
 
-use fxhash::{FxBuildHasher, FxHashSet, FxHasher32};
+use fxhash::{FxHashSet, FxHasher32};
 use hashbrown::{HashMap, HashSet};
 use petgraph::graph::NodeIndex;
 use plutus_evm::revm::primitives::map::AddressMap;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 
 use crate::InnerTokenGraph;
+
+const MAX_HOPS: usize = 3;
 
 pub fn create_simple_cycles(graph: &InnerTokenGraph) -> AddressMap<Vec<Vec<NodeIndex>>> {
     let cycles: AddressMap<Vec<Vec<NodeIndex>>> = HashMap::from_iter(
@@ -23,7 +25,7 @@ pub fn create_simple_cycles(graph: &InnerTokenGraph) -> AddressMap<Vec<Vec<NodeI
                             node,
                             node,
                             1,
-                            Some(5),
+                            Some(MAX_HOPS),
                         )
                         .collect::<HashSet<_>>(),
                     ),

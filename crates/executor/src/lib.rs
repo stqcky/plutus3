@@ -1,6 +1,6 @@
 use alloy::eips::eip2718::Encodable2718;
 use alloy::network::TransactionBuilder;
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 use alloy::providers::WalletProvider;
 use alloy::rpc::types::TransactionRequest;
 use alloy::sol;
@@ -39,10 +39,41 @@ impl<T: Transport + Clone, P: Provider<T> + Clone + WalletProvider + 'static> Ex
         })
     }
 
+    async fn send_dummy(&mut self) -> anyhow::Result<()> {
+        let tx = TransactionRequest::default()
+            .with_to(self.provider.default_signer_address())
+            .with_nonce(self.nonce)
+            .with_value(U256::ZERO)
+            .with_chain_id(42161)
+            .with_gas_limit(100_000)
+            .max_fee_per_gas(60_000_000)
+            .max_priority_fee_per_gas(0);
+
+        let tx_envelope = tx.build(self.provider.wallet()).await?;
+        let tx_encoded = tx_envelope.encoded_2718();
+
+        self.nonce += 1;
+
+        let provider = self.provider.clone();
+        tokio::spawn(async move {
+            _ = provider
+                .send_raw_transaction(&tx_encoded)
+                .await
+                .inspect_err(|err| tracing::error!("{err}"));
+        });
+
+        // let _ = self.provider.send_transaction().await?;
+
+        Ok(())
+    }
+
     pub async fn execute<PP: Provider>(
         &mut self,
         opportunity: &CalculatedOpportunity<PP>,
     ) -> anyhow::Result<()> {
+        self.send_dummy().await?;
+        return Ok(());
+
         let now = Instant::now();
         let other_legs = &opportunity.legs[1..];
         let other_steps = other_legs
