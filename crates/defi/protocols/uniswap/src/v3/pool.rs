@@ -308,7 +308,7 @@ impl UniswapV3Pool {
         };
         let (current_word, _) = position(compressed);
 
-        const PREFETCH_AMOUNT: i16 = 10;
+        const PREFETCH_AMOUNT: i16 = 20;
 
         for i in -PREFETCH_AMOUNT..=PREFETCH_AMOUNT {
             let word = current_word + i;

@@ -25,7 +25,30 @@ async fn main() -> anyhow::Result<()> {
         ),
     );
 
-    println!("{}", i128::MAX);
+    let now = Instant::now();
+    provider
+        .get_storage_at(
+            address!("0x82aF49447D8a07e3bd95BD0d56f35241523fBab1"),
+            U256::ZERO,
+        )
+        .await?;
+    tracing::info!("{:?}", now.elapsed());
+    let now = Instant::now();
+    provider
+        .get_storage_at(
+            address!("0x82aF49447D8a07e3bd95BD0d56f35241523fBab1"),
+            U256::ZERO,
+        )
+        .await?;
+    tracing::info!("{:?}", now.elapsed());
+    let now = Instant::now();
+    provider
+        .get_storage_at(
+            address!("0x82aF49447D8a07e3bd95BD0d56f35241523fBab1"),
+            U256::ZERO,
+        )
+        .await?;
+    tracing::info!("{:?}", now.elapsed());
 
     Ok(())
 }

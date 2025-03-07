@@ -224,10 +224,10 @@ async fn main() -> anyhow::Result<()> {
                 tracing::info!("{}", opportunity);
                 tracing::info!("starting execution, {:?}", now.elapsed());
                 let now = Instant::now();
-                _ = executor
-                    .execute(opportunity)
-                    .await
-                    .inspect_err(|err| tracing::error!("{err}"));
+                // _ = executor
+                //     .execute(opportunity)
+                //     .await
+                //     .inspect_err(|err| tracing::error!("{err}"));
                 tracing::info!("executed in {:?}", now.elapsed());
 
                 // panic!("yo");

@@ -3,8 +3,14 @@ use core::f64;
 use futures::{executor::block_on, future};
 use hashbrown::{HashMap, HashSet};
 use rayon::prelude::*;
-use simple_cycles::{create_simple_cycles, dedup_cycles};
-use std::{sync::Arc, time::Instant};
+use simple_cycles::{create_simple_cycles, dedup_cycles, dedup_opportunities};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Instant,
+};
 
 use petgraph::{
     dot::Dot,
@@ -244,15 +250,22 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
 
         let now = Instant::now();
         // let semaphore = Arc::new(Semaphore::new(30));
+        let i = Arc::new(AtomicUsize::new(0));
         let tasks: Vec<_> = opportunities
             .into_iter()
             .map(|opportunity| {
                 let provider = provider.clone();
                 // let semaphore = semaphore.clone();
+                let i = i.clone();
 
                 tokio::spawn(async move {
                     // let _permit = semaphore.acquire_owned().await.unwrap();
-                    calculate_opportunity(opportunity, block, provider).await
+                    // let now = Instant::now();
+                    // let task = i.fetch_add(1, Ordering::SeqCst);
+                    // tracing::info!("starting task {task}");
+                    let a = calculate_opportunity(opportunity, block, provider).await;
+                    // tracing::info!("task {task} in {:?}", now.elapsed());
+                    a
                 })
             })
             .collect();
@@ -340,7 +353,8 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             None => unreachable!(),
         });
 
-        let opportunities: Vec<_> = opportunities.into_iter().map(|a| a.1).collect();
+        let opportunities: Vec<_> =
+            dedup_opportunities(opportunities.into_iter().map(|a| a.1).collect());
 
         let opportunities = opportunities
             .into_par_iter()

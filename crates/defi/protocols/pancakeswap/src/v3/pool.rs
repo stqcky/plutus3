@@ -240,10 +240,17 @@ impl PancakeSwapV3Pool {
         block: BlockId,
         provider: P,
     ) -> Result<(), alloy::contract::Error> {
-        let tick = self.slot0.read().tick;
-        let (current_word, _) = position(tick.try_into().unwrap());
+        let tick: i32 = self.slot0.read().tick.try_into().unwrap();
+        let tick_spacing: i32 = self.tick_spacing.try_into().unwrap();
 
-        const PREFETCH_AMOUNT: i16 = 5;
+        let compressed = if tick < 0 && tick % tick_spacing != 0 {
+            (tick / tick_spacing) - 1
+        } else {
+            tick / tick_spacing
+        };
+        let (current_word, _) = position(compressed);
+
+        const PREFETCH_AMOUNT: i16 = 20;
 
         for i in -PREFETCH_AMOUNT..=PREFETCH_AMOUNT {
             let word = current_word + i;

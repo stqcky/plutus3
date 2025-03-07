@@ -153,24 +153,24 @@ fn criterion_benchmark(c: &mut Criterion) -> anyhow::Result<()> {
     //     b.iter(|| token_graph.simple_finding(target_tokens.clone(), target_pools.clone()))
     // });
 
-    // c.bench_function("calculate_opportunity", |b| {
-    //     b.to_async(&runtime)
-    //         .iter(|| calculate_opportunity(opportunity.clone(), block.into(), provider.clone()))
-    // });
+    c.bench_function("calculate_opportunity", |b| {
+        b.to_async(&runtime)
+            .iter(|| calculate_opportunity(opportunity.clone(), block.into(), provider.clone()))
+    });
 
     // let mut group = c.benchmark_group("small");
     // group.sample_size(10);
 
-    c.bench_function("find_opportunities", |b| {
-        b.to_async(&runtime).iter(|| {
-            token_graph.find_opportunities(
-                target_tokens.clone(),
-                target_pools.clone(),
-                block.into(),
-                provider.clone(),
-            )
-        })
-    });
+    // c.bench_function("find_opportunities", |b| {
+    //     b.to_async(&runtime).iter(|| {
+    //         token_graph.find_opportunities(
+    //             target_tokens.clone(),
+    //             target_pools.clone(),
+    //             block.into(),
+    //             provider.clone(),
+    //         )
+    //     })
+    // });
 
     Ok(())
 }

@@ -26,6 +26,7 @@ impl SmartContractStorage {
         provider: P,
     ) -> Result<U256, alloy::contract::Error> {
         {
+            // tracing::info!("CACHE HIT");
             let storage = self.storage.read();
 
             if let Some(value) = storage.get(&B256::from(slot)) {
@@ -33,7 +34,7 @@ impl SmartContractStorage {
             }
         };
 
-        // println!("CACHE MISS");
+        // tracing::warn!("CACHE MISS");
         let value = provider
             .get_storage_at(self.address, slot)
             .block_id(block)

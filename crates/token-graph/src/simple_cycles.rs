@@ -1,12 +1,13 @@
 use std::hash::{Hash, Hasher};
 
-use fxhash::{FxHashSet, FxHasher32};
+use fxhash::{FxHashSet, FxHasher, FxHasher32};
 use hashbrown::{HashMap, HashSet};
 use petgraph::graph::NodeIndex;
+use plutus_evm::alloy::primitives::Address;
 use plutus_evm::revm::primitives::map::AddressMap;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 
-use crate::InnerTokenGraph;
+use crate::{InnerTokenGraph, Opportunity};
 
 const MAX_HOPS: usize = 3;
 
@@ -72,6 +73,26 @@ fn create_cycle_key(path: &[NodeIndex]) -> CycleKey {
     }
 }
 
+fn create_opportunity_key(opportunity: &[(NodeIndex, NodeIndex, Address)]) -> CycleKey {
+    let mut hasher = FxHasher32::default();
+
+    let mut nodes = opportunity
+        .iter()
+        .map(|opportunity| opportunity.0)
+        .collect::<FxHashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    nodes.sort_unstable();
+
+    nodes.hash(&mut hasher);
+
+    CycleKey {
+        fingerprint: hasher.finish(),
+        len: opportunity.len(),
+    }
+}
+
 pub fn dedup_cycles(cycles: Vec<Vec<NodeIndex>>) -> Vec<Vec<NodeIndex>> {
     // let mut seen = FxHashSet::default();
     // let mut filtered = Vec::with_capacity(cycles.len());
@@ -99,4 +120,19 @@ pub fn dedup_cycles(cycles: Vec<Vec<NodeIndex>>) -> Vec<Vec<NodeIndex>> {
         .map(|(_, filtered)| filtered)
         .flatten()
         .collect()
+}
+
+pub fn dedup_opportunities(
+    opportunities: Vec<Vec<(NodeIndex, NodeIndex, Address)>>,
+) -> Vec<Vec<(NodeIndex, NodeIndex, Address)>> {
+    let mut seen = FxHashSet::default();
+    let mut filtered = Vec::with_capacity(opportunities.len());
+
+    for opportunity in opportunities {
+        if seen.insert(create_opportunity_key(&opportunity)) {
+            filtered.push(opportunity);
+        }
+    }
+
+    filtered
 }
