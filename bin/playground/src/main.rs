@@ -25,47 +25,7 @@ async fn main() -> anyhow::Result<()> {
         ),
     );
 
-    let pool = UniswapV3Pool::new_with_provider(
-        address!("0x44c40a6544f29f331720E989Cd2724306b21c0d0"),
-        provider.clone(),
-        BlockId::latest(),
-    )
-    .await?;
-
-    let now = Instant::now();
-    provider.get_storage_at(pool.address, U256::ZERO).await?;
-    tracing::info!("{:?}", now.elapsed());
-
-    tracing::info!("1");
-    let now = Instant::now();
-    pool.simulate_swap(
-        pool.token0.address,
-        pool.token0.to_token_amount(1.0),
-        BlockId::latest(),
-        provider.clone(),
-    )
-    .await;
-    tracing::info!("{:?}", now.elapsed());
-
-    let now = Instant::now();
-    pool.simulate_swap(
-        pool.token0.address,
-        pool.token0.to_token_amount(1.0),
-        BlockId::latest(),
-        provider.clone(),
-    )
-    .await;
-    tracing::info!("{:?}", now.elapsed());
-
-    let now = Instant::now();
-    pool.simulate_swap(
-        pool.token0.address,
-        pool.token0.to_token_amount(1.0),
-        BlockId::latest(),
-        provider.clone(),
-    )
-    .await;
-    tracing::info!("{:?}", now.elapsed());
+    println!("{}", i128::MAX);
 
     Ok(())
 }

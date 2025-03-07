@@ -59,10 +59,26 @@ pub async fn calculate_opportunity<P: Provider + Clone>(
     block: BlockId,
     provider: P,
 ) -> Option<CalculatedOpportunity<P>> {
-    let first_token_decimals = opportunity[0].token0.decimals;
+    // println!("quadratic_search");
+    let amount_in = quadratic_search(&opportunity, block, provider.clone(), 10).await;
 
-    let amount_in =
-        optimize_profit(&opportunity, first_token_decimals, block, provider.clone()).await;
+    // println!("ternary search");
+    // let amount_in = optimize_profit(
+    //     &opportunity,
+    //     first_token_decimals,
+    //     block,
+    //     provider.clone(),
+    //     50,
+    // )
+    // .await;
+
+    // let amount_out_quadratic =
+    //     simulate_opportunity(&opportunity, amount_in_quadratic, block, provider.clone()).await;
+    //
+    // let amount_out_ternary =
+    //     simulate_opportunity(&opportunity, amount_in, block, provider.clone()).await;
+
+    // println!("quadratic: {amount_out_quadratic}, ternary: {amount_out_ternary}");
 
     // tracing::info!(
     //     "calculate_opportunity: {:?}\n{opportunity:#?}",
@@ -71,6 +87,9 @@ pub async fn calculate_opportunity<P: Provider + Clone>(
 
     let mut legs = vec![];
     let mut amount = amount_in;
+
+    // TODO: most of this can be removed.
+    // just amount_in might be fine.
 
     for leg in opportunity {
         let amount_out = leg
@@ -107,6 +126,7 @@ async fn optimize_profit<P: Provider + Clone>(
     decimals: u8,
     block: BlockId,
     provider: P,
+    iters: i32,
 ) -> U256 {
     let get_profit = async |x| {
         I256::from_raw(simulate_opportunity(opportunity, x, block, provider.clone()).await)
@@ -119,19 +139,24 @@ async fn optimize_profit<P: Provider + Clone>(
 
     let locked = if zero_for_one { locked0 } else { locked1 } / uint!(4_U256);
 
-    let mut lower_bound = uint!(0_U256);
+    let mut lower_bound = uint!(1_U256);
     let mut upper_bound = locked;
 
     let precision = U256::from(decimals);
 
-    let max_iter = 50;
+    let max_iter = iters;
 
     let two = uint!(2_U256);
     let three = uint!(3_U256);
 
-    for _ in 0..max_iter {
+    for i in 0..max_iter {
         let point_lower = lower_bound + (upper_bound - lower_bound) / three;
         let point_higher = upper_bound - (upper_bound - lower_bound) / three;
+
+        println!(
+            "{i}: {point_lower} {point_higher} {}",
+            point_higher - point_lower
+        );
 
         if point_higher - point_lower <= precision {
             break;
@@ -151,6 +176,56 @@ async fn optimize_profit<P: Provider + Clone>(
     }
 
     (lower_bound + upper_bound) / two
+}
+
+async fn quadratic_search<P: Provider + Clone>(
+    opportunity: &Opportunity<P>,
+    block: BlockId,
+    provider: P,
+    iters: i32,
+) -> U256 {
+    let get_profit = async |x| {
+        I256::from_raw(simulate_opportunity(opportunity, x, block, provider.clone()).await)
+            - I256::from_raw(x)
+    };
+
+    let (locked0, locked1) = opportunity[0].pool.tokens_locked();
+
+    let zero_for_one = opportunity[0].pool.token0().address == opportunity[0].token0.address;
+
+    let locked = if zero_for_one { locked0 } else { locked1 } / uint!(4_U256);
+
+    let two = uint!(2_U256);
+    let three = uint!(3_U256);
+    let four = uint!(4_U256);
+
+    let mut first = uint!(1_U256);
+    let mut last = locked;
+
+    for _ in 0..iters {
+        let mid = (first + last) / two;
+        let p1 = first + (last - first) / four;
+        let p2 = first + (last - first) * three / four;
+
+        // println!("{i}: {p1} {p2} {}", p2 - p1);
+
+        let (p1_profit, mid_profit, p2_profit) =
+            tokio::join!(get_profit(p1), get_profit(mid), get_profit(p2));
+
+        if p1_profit > mid_profit {
+            last = p1;
+        } else if mid_profit > p2_profit {
+            last = mid;
+            first = p1;
+        } else if mid_profit > p1_profit {
+            first = mid;
+            last = p2;
+        } else if p2_profit > mid_profit {
+            first = p2;
+        }
+    }
+
+    (first + last) / two
 }
 
 // async fn optimize_profit_f<P: Provider + Clone>(
