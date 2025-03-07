@@ -2,7 +2,6 @@ use calculation::{CalculatedOpportunity, calculate_opportunity};
 use core::f64;
 use futures::{executor::block_on, future};
 use hashbrown::{HashMap, HashSet};
-use plutus_defi_price_oracle::PriceOracle;
 use rayon::prelude::*;
 use simple_cycles::{create_simple_cycles, dedup_cycles};
 use std::{sync::Arc, time::Instant};
@@ -219,14 +218,15 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
 
         tracing::info!("opportunity count: {}", opportunities.len());
 
-        // let mut calculated = vec![];
-        //
-        // let now = Instant::now();
-        // for opportunity in opportunities {
-        //     if let Some(c) = calculate_opportunity(opportunity, block, provider.clone()).await {
-        //         calculated.push(c);
-        //     }
-        // }
+        let _opportunities = opportunities;
+        let mut opportunities = vec![];
+
+        let now = Instant::now();
+        for opportunity in _opportunities {
+            if let Some(c) = calculate_opportunity(opportunity, block, provider.clone()).await {
+                opportunities.push(c);
+            }
+        }
 
         // let now = Instant::now();
         // let opportunities = opportunities
@@ -242,26 +242,26 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         //     .filter_map(|x| x)
         //     .collect::<Vec<_>>();
 
-        let now = Instant::now();
-        let semaphore = Arc::new(Semaphore::new(16));
-        let tasks: Vec<_> = opportunities
-            .into_iter()
-            .map(|opportunity| {
-                let provider = provider.clone();
-                let semaphore = semaphore.clone();
-
-                tokio::spawn(async move {
-                    let _permit = semaphore.acquire_owned().await.unwrap();
-                    calculate_opportunity(opportunity, block, provider).await
-                })
-            })
-            .collect();
-
-        let opportunities: Vec<_> = future::try_join_all(tasks)
-            .await?
-            .into_iter()
-            .filter_map(|x| x)
-            .collect();
+        // let now = Instant::now();
+        // let semaphore = Arc::new(Semaphore::new(16));
+        // let tasks: Vec<_> = opportunities
+        //     .into_iter()
+        //     .map(|opportunity| {
+        //         let provider = provider.clone();
+        //         let semaphore = semaphore.clone();
+        //
+        //         tokio::spawn(async move {
+        //             let _permit = semaphore.acquire_owned().await.unwrap();
+        //             calculate_opportunity(opportunity, block, provider).await
+        //         })
+        //     })
+        //     .collect();
+        //
+        // let opportunities: Vec<_> = future::try_join_all(tasks)
+        //     .await?
+        //     .into_iter()
+        //     .filter_map(|x| x)
+        //     .collect();
 
         tracing::info!("calculations took {:?}", now.elapsed());
 

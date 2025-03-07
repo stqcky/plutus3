@@ -113,11 +113,7 @@ async fn optimize_profit<P: Provider + Clone>(
             - I256::from_raw(x)
     };
 
-    let (locked0, locked1) = opportunity[0]
-        .pool
-        .tokens_locked(provider.clone())
-        .await
-        .unwrap();
+    let (locked0, locked1) = opportunity[0].pool.tokens_locked();
 
     let zero_for_one = opportunity[0].pool.token0().address == opportunity[0].token0.address;
 

@@ -149,10 +149,10 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
         !reserves.0.is_zero() && !reserves.1.is_zero()
     }
 
-    async fn tokens_locked(&self, _provider: P) -> Result<(U256, U256), alloy::contract::Error> {
+    fn tokens_locked(&self) -> (U256, U256) {
         let reserves = self.reserves.read();
 
-        Ok((U256::from(reserves.0), U256::from(reserves.1)))
+        (U256::from(reserves.0), U256::from(reserves.1))
     }
 
     fn identifier(&self) -> &'static str {

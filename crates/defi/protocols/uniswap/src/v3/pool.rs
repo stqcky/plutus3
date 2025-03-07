@@ -164,6 +164,9 @@ pub struct UniswapV3Pool {
     pub ticks: SolidityMapping<I24, TickInfo, 5, 4>,
     pub tick_bitmap: SolidityMapping<i16, U256, 6>,
 
+    pub locked0: U256,
+    pub locked1: U256,
+
     swap_cache: SwapCalculationCache,
 
     pub storage: SmartContractStorage,
@@ -233,18 +236,24 @@ impl UniswapV3Pool {
     ) -> Result<Self, alloy::contract::Error> {
         let instance = IUniswapV3PoolInstance::new(address, &provider);
 
+        let token0 = ERC20::new_with_provider(
+            instance.token0().block(block).call().await?.token0,
+            &provider,
+        )
+        .await?;
+
+        let token1 = ERC20::new_with_provider(
+            instance.token1().block(block).call().await?.token1,
+            &provider,
+        )
+        .await?;
+
         let pool = Self {
             address,
-            token0: ERC20::new_with_provider(
-                instance.token0().block(block).call().await?.token0,
-                &provider,
-            )
-            .await?,
-            token1: ERC20::new_with_provider(
-                instance.token1().block(block).call().await?.token1,
-                &provider,
-            )
-            .await?,
+            locked0: token0.balance_of(address, &provider).await?,
+            locked1: token1.balance_of(address, &provider).await?,
+            token0,
+            token1,
             fee: instance.fee().block(block).call().await?.fee,
             tick_spacing: instance
                 .tickSpacing()
@@ -279,7 +288,7 @@ impl UniswapV3Pool {
 
         // i think it messes up the state
         // fixme
-        // pool.prefetch_ticks(block, provider).await?;
+        pool.prefetch_ticks(block, provider).await?;
 
         Ok(pool)
     }
@@ -609,11 +618,8 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
             && sqrt_price_x96 < MAX_SQRT_RATIO - U256::from(1)
     }
 
-    async fn tokens_locked(&self, provider: P) -> Result<(U256, U256), alloy::contract::Error> {
-        Ok((
-            self.token0.balance_of(self.address, &provider).await?,
-            self.token1.balance_of(self.address, &provider).await?,
-        ))
+    fn tokens_locked(&self) -> (U256, U256) {
+        (self.locked0, self.locked1)
     }
 
     fn identifier(&self) -> &'static str {

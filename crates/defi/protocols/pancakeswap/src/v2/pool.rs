@@ -90,8 +90,8 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV2Pool {
         <UniswapV2Pool as LiquidityPool<P>>::is_liquidity_valid(&self.0)
     }
 
-    async fn tokens_locked(&self, _provider: P) -> Result<(U256, U256), alloy::contract::Error> {
-        <UniswapV2Pool as LiquidityPool<P>>::tokens_locked(&self.0, _provider).await
+    fn tokens_locked(&self) -> (U256, U256) {
+        <UniswapV2Pool as LiquidityPool<P>>::tokens_locked(&self.0)
     }
 
     fn identifier(&self) -> &'static str {

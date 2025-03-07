@@ -192,10 +192,8 @@ impl<P: Provider + std::fmt::Debug + 'static + Clone> PoolFilter<P> {
                     let _permit = semaphore.acquire_owned().await.unwrap();
 
                     let (token0, token1) = pool.tokens();
-                    let Ok((locked0, locked1)) = pool.tokens_locked(provider.clone()).await else {
-                        return None;
-                    };
 
+                    let (locked0, locked1) = pool.tokens_locked();
                     let (locked0, locked1) = (
                         token0.to_float_amount(locked0),
                         token1.to_float_amount(locked1),

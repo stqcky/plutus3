@@ -38,7 +38,7 @@ pub trait LiquidityPool<P: Provider>: Send + Sync {
         (self.token0(), self.token1())
     }
 
-    async fn tokens_locked(&self, provider: P) -> Result<(U256, U256), alloy::contract::Error>;
+    fn tokens_locked(&self) -> (U256, U256);
 
     async fn verify_health(&self, provider: Arc<P>, block: BlockNumber) -> anyhow::Result<bool>;
 
