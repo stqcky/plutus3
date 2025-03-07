@@ -201,6 +201,12 @@ async fn main() -> anyhow::Result<()> {
             let opportunity = &best_opportunity.0;
             let usd_value = best_opportunity.1;
 
+            let base_fee_per_gas = state_change.block_header.base_fee_per_gas.unwrap();
+            let gas_price = price_oracle
+                .clone()
+                .get_eth_price(U256::from(base_fee_per_gas * 400_000))
+                .await;
+
             // tracing::info!(
             //     "ETH: {}",
             //     price_oracle.clone().get_eth_price(U256::from(1e18)).await
@@ -218,17 +224,21 @@ async fn main() -> anyhow::Result<()> {
             // }
             if usd_value >= 0.011 {
                 tracing::info!("${}", usd_value);
-
-                // provider.send_
+                tracing::info!("${gas_price} gas");
 
                 tracing::info!("{}", opportunity);
-                tracing::info!("starting execution, {:?}", now.elapsed());
-                let now = Instant::now();
-                // _ = executor
-                //     .execute(opportunity)
-                //     .await
-                //     .inspect_err(|err| tracing::error!("{err}"));
-                tracing::info!("executed in {:?}", now.elapsed());
+
+                if usd_value >= gas_price {
+                    tracing::info!("starting execution, {:?}", now.elapsed());
+                    let now = Instant::now();
+                    // _ = executor
+                    //     .execute(opportunity)
+                    //     .await
+                    //     .inspect_err(|err| tracing::error!("{err}"));
+                    tracing::info!("executed in {:?}", now.elapsed());
+                } else {
+                    tracing::warn!("less than gas");
+                }
 
                 // panic!("yo");
             }

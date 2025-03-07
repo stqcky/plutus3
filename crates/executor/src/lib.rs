@@ -71,8 +71,8 @@ impl<T: Transport + Clone, P: Provider<T> + Clone + WalletProvider + 'static> Ex
         &mut self,
         opportunity: &CalculatedOpportunity<PP>,
     ) -> anyhow::Result<()> {
-        self.send_dummy().await?;
-        return Ok(());
+        // self.send_dummy().await?;
+        // return Ok(());
 
         let now = Instant::now();
         let other_legs = &opportunity.legs[1..];
