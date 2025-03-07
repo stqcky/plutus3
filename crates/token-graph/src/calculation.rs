@@ -184,9 +184,11 @@ async fn quadratic_search<P: Provider + Clone>(
     provider: P,
     iters: i32,
 ) -> U256 {
-    let get_profit = async |x| {
-        I256::from_raw(simulate_opportunity(opportunity, x, block, provider.clone()).await)
-            - I256::from_raw(x)
+    let get_profit = async |x: i128| {
+        simulate_opportunity(opportunity, U256::from(x), block, provider.clone())
+            .await
+            .to::<i128>()
+            - x
     };
 
     let (locked0, locked1) = opportunity[0].pool.tokens_locked();
@@ -195,17 +197,15 @@ async fn quadratic_search<P: Provider + Clone>(
 
     let locked = if zero_for_one { locked0 } else { locked1 } / uint!(4_U256);
 
-    let two = uint!(2_U256);
-    let three = uint!(3_U256);
-    let four = uint!(4_U256);
-
-    let mut first = uint!(1_U256);
-    let mut last = locked;
+    let mut first: i128 = 1;
+    let mut last: i128 = locked.to();
 
     for _ in 0..iters {
-        let mid = (first + last) / two;
-        let p1 = first + (last - first) / four;
-        let p2 = first + (last - first) * three / four;
+        let one_fourth = (last - first) / 4;
+
+        let mid = (first + last) / 2;
+        let p1 = first + one_fourth;
+        let p2 = last - one_fourth;
 
         // println!("{i}: {p1} {p2} {}", p2 - p1);
 
@@ -225,7 +225,7 @@ async fn quadratic_search<P: Provider + Clone>(
         }
     }
 
-    (first + last) / two
+    U256::from((first + last) / 2)
 }
 
 // async fn optimize_profit_f<P: Provider + Clone>(
