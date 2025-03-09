@@ -7,8 +7,9 @@ use alloy::{
 };
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
+use strum::IntoEnumIterator as _;
 
-use super::{fee::FeeAmount, pool::UniswapV3Pool};
+use super::fee::FeeAmount;
 
 lazy_static! {
     pub static ref FACTORY_ADDRESS: HashMap<ChainId, Address> =
@@ -44,28 +45,30 @@ impl UniswapV3Factory {
         Self { address }
     }
 
-    pub async fn get_pool_with_provider<P: Provider>(
+    pub async fn get_pool_addresses_with_provider<P: Provider>(
         &self,
         token0: Address,
         token1: Address,
-        fee: FeeAmount,
+        block: BlockId,
         provider: P,
-    ) -> Result<Option<UniswapV3Pool>, alloy::contract::Error> {
-        let instance = IUniswapV3FactoryInstance::new(self.address, &provider);
+    ) -> Result<Vec<Address>, alloy::contract::Error> {
+        let instance = IUniswapV3FactoryInstance::new(self.address, provider);
+        let mut addresses = vec![];
 
-        let address = instance
-            .getPool(token0, token1, U24::from(fee as u32))
-            .call()
-            .await?
-            .pool;
+        for fee in FeeAmount::iter() {
+            let pool = instance
+                .getPool(token0, token1, U24::from(fee as u32))
+                .block(block)
+                .call()
+                .await?
+                .pool;
 
-        if address.is_zero() {
-            Ok(None)
-        } else {
-            Ok(Some(
-                UniswapV3Pool::new_with_provider(address, provider, BlockId::latest()).await?,
-            ))
+            if !pool.is_zero() {
+                addresses.push(pool);
+            }
         }
+
+        Ok(addresses)
     }
 
     pub async fn pool_created_events<P: Provider>(

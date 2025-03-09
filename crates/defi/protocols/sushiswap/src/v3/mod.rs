@@ -14,9 +14,7 @@ use factory::{FACTORY_ADDRESS, SushiSwapV3Factory};
 use plutus_defi_protocols_protocol::{
     DiscoverableProtocol, Protocol, ProtocolFactory, pool::LiquidityPool,
 };
-use plutus_defi_protocols_uniswap::v3::fee::FeeAmount;
 use pool::SushiSwapV3Pool;
-use strum::IntoEnumIterator as _;
 
 #[derive(Clone, Copy)]
 pub struct SushiSwapV3Protocol {
@@ -24,28 +22,17 @@ pub struct SushiSwapV3Protocol {
 }
 
 #[async_trait]
-impl<P: Provider + 'static> Protocol<P> for SushiSwapV3Protocol {
-    async fn get_pools_with_provider(
+impl<P: Provider + Clone + 'static> Protocol<P> for SushiSwapV3Protocol {
+    async fn get_pool_addresses_with_provider(
         &self,
         token0: Address,
         token1: Address,
+        block: BlockId,
         provider: P,
-    ) -> Result<Vec<Arc<dyn LiquidityPool<P>>>, alloy::contract::Error> {
-        let mut pools: Vec<Arc<dyn LiquidityPool<P>>> = vec![];
-
-        for fee in FeeAmount::iter() {
-            let Some(pool) = self
-                .factory
-                .get_pool_with_provider(token0, token1, fee, &provider)
-                .await?
-            else {
-                continue;
-            };
-
-            pools.push(Arc::new(pool));
-        }
-
-        Ok(pools)
+    ) -> Result<Vec<Address>, alloy::contract::Error> {
+        self.factory
+            .get_pool_addresses_with_provider(token0, token1, block, provider)
+            .await
     }
 
     async fn create_pool_with_provider(
@@ -61,7 +48,7 @@ impl<P: Provider + 'static> Protocol<P> for SushiSwapV3Protocol {
 }
 
 #[async_trait]
-impl<P: Provider + 'static> DiscoverableProtocol<P> for SushiSwapV3Protocol {
+impl<P: Provider + Clone + 'static> DiscoverableProtocol<P> for SushiSwapV3Protocol {
     async fn discover(
         &self,
         from: BlockNumber,
@@ -78,7 +65,7 @@ impl<P: Provider + 'static> DiscoverableProtocol<P> for SushiSwapV3Protocol {
     }
 }
 
-impl<P: Provider + 'static> ProtocolFactory<P> for SushiSwapV3Protocol {
+impl<P: Provider + Clone + 'static> ProtocolFactory<P> for SushiSwapV3Protocol {
     const IDENTIFIER: &str = "sushiswap_v3";
 
     fn new(chain_id: ChainId) -> Option<Self> {

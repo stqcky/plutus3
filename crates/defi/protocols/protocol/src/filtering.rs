@@ -24,7 +24,7 @@ pub struct TokenValueCache {
 }
 
 impl TokenValueCache {
-    pub async fn get_value<P: Provider + Clone>(
+    pub async fn get_value<P: Provider + Clone + 'static>(
         &self,
         of_token: &ERC20,
         in_token: &ERC20,
@@ -52,7 +52,7 @@ impl TokenValueCache {
         }
     }
 
-    async fn get_best_value<P: Provider + Clone>(
+    async fn get_best_value<P: Provider + Clone + 'static>(
         of_token: &ERC20,
         in_token: &ERC20,
         protocols: Arc<Vec<Box<dyn DiscoverableProtocol<P>>>>,
@@ -67,6 +67,7 @@ impl TokenValueCache {
             of_token.address,
             in_token.address,
             protocols,
+            block,
             provider.clone(),
         )
         .await;
@@ -90,17 +91,18 @@ impl TokenValueCache {
         in_token.to_float_amount(best_value.unwrap_or_default())
     }
 
-    async fn get_pools<P: Provider + Clone>(
+    async fn get_pools<P: Provider + Clone + 'static>(
         token0: Address,
         token1: Address,
         protocols: Arc<Vec<Box<dyn DiscoverableProtocol<P>>>>,
+        block: BlockId,
         provider: P,
     ) -> Vec<Arc<dyn LiquidityPool<P>>> {
         let mut pools = vec![];
 
         for protocol in protocols.iter() {
             let Ok(protocol_pools) = protocol
-                .get_pools_with_provider(token0, token1, provider.clone())
+                .get_pools_with_provider(token0, token1, block, provider.clone())
                 .await
             else {
                 continue;

@@ -111,7 +111,12 @@ async fn main() -> anyhow::Result<()> {
         TokenGraph::new(pools.clone(), 0.001, start_block.into(), provider.clone()).await?;
     tracing::info!("token graph created in {:?}", now.elapsed());
 
-    let price_oracle = PriceOracle::new(provider.clone()).await?;
+    let price_oracle = PriceOracle::new(
+        provider.clone(),
+        token_graph.pools.clone(),
+        token_graph.pool_map.clone(),
+    )
+    .await?;
 
     tracing::info!("prefetching prices");
     let now = Instant::now();

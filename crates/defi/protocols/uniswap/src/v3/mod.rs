@@ -14,12 +14,10 @@ use alloy::{
 };
 use async_trait::async_trait;
 use factory::{FACTORY_ADDRESS, UniswapV3Factory};
-use fee::FeeAmount;
 use plutus_defi_protocols_protocol::{
     DiscoverableProtocol, Protocol, ProtocolFactory, pool::LiquidityPool,
 };
 use pool::UniswapV3Pool;
-use strum::IntoEnumIterator as _;
 
 #[derive(Clone, Copy)]
 pub struct UniswapV3Protocol {
@@ -27,28 +25,17 @@ pub struct UniswapV3Protocol {
 }
 
 #[async_trait]
-impl<P: Provider + 'static> Protocol<P> for UniswapV3Protocol {
-    async fn get_pools_with_provider(
+impl<P: Provider + Clone + 'static> Protocol<P> for UniswapV3Protocol {
+    async fn get_pool_addresses_with_provider(
         &self,
         token0: Address,
         token1: Address,
+        block: BlockId,
         provider: P,
-    ) -> Result<Vec<Arc<dyn LiquidityPool<P>>>, alloy::contract::Error> {
-        let mut pools: Vec<Arc<dyn LiquidityPool<P>>> = vec![];
-
-        for fee in FeeAmount::iter() {
-            let Some(pool) = self
-                .factory
-                .get_pool_with_provider(token0, token1, fee, &provider)
-                .await?
-            else {
-                continue;
-            };
-
-            pools.push(Arc::new(pool));
-        }
-
-        Ok(pools)
+    ) -> Result<Vec<Address>, alloy::contract::Error> {
+        self.factory
+            .get_pool_addresses_with_provider(token0, token1, block, provider)
+            .await
     }
 
     async fn create_pool_with_provider(
@@ -64,7 +51,7 @@ impl<P: Provider + 'static> Protocol<P> for UniswapV3Protocol {
 }
 
 #[async_trait]
-impl<P: Provider + 'static> DiscoverableProtocol<P> for UniswapV3Protocol {
+impl<P: Provider + Clone + 'static> DiscoverableProtocol<P> for UniswapV3Protocol {
     async fn discover(
         &self,
         from: BlockNumber,
@@ -81,7 +68,7 @@ impl<P: Provider + 'static> DiscoverableProtocol<P> for UniswapV3Protocol {
     }
 }
 
-impl<P: Provider + 'static> ProtocolFactory<P> for UniswapV3Protocol {
+impl<P: Provider + Clone + 'static> ProtocolFactory<P> for UniswapV3Protocol {
     const IDENTIFIER: &str = "uniswap_v3";
 
     fn new(chain_id: ChainId) -> Option<Self> {

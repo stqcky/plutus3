@@ -1,10 +1,12 @@
 use alloy::eips::BlockId;
 use alloy::primitives::U256;
 use alloy::primitives::address;
+use alloy::primitives::map::AddressMap;
 use futures::StreamExt;
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::Protocol;
 use plutus_defi_protocols_protocol::ProtocolFactory;
+use plutus_defi_protocols_protocol::pool::LiquidityPool;
 use std::{
     num::NonZeroUsize,
     sync::Arc,
@@ -26,6 +28,10 @@ pub struct PriceOracle<P> {
     provider: P,
     uniswap: UniswapV3Protocol,
 
+    // FIXME: no. this is horrendous.
+    pools: Arc<Vec<Arc<dyn LiquidityPool<P>>>>,
+    pool_map: AddressMap<usize>,
+
     usdt: ERC20,
     usdc: ERC20,
     weth: ERC20,
@@ -34,7 +40,11 @@ pub struct PriceOracle<P> {
 const CACHE_TTL: Duration = Duration::from_secs(120);
 
 impl<P: Provider + Clone + 'static> PriceOracle<P> {
-    pub async fn new(provider: P) -> anyhow::Result<Arc<Self>> {
+    pub async fn new(
+        provider: P,
+        pools: Arc<Vec<Arc<dyn LiquidityPool<P>>>>,
+        pool_map: AddressMap<usize>,
+    ) -> anyhow::Result<Arc<Self>> {
         let chain_id = provider.get_chain_id().await?;
 
         let oracle = Arc::new(Self {
@@ -43,6 +53,8 @@ impl<P: Provider + Clone + 'static> PriceOracle<P> {
             usdc: ERC20::new_with_provider(USDC, &provider).await?,
             weth: ERC20::new_with_provider(WETH, &provider).await?,
             uniswap: <UniswapV3Protocol as ProtocolFactory<P>>::new(chain_id).unwrap(),
+            pools,
+            pool_map,
             provider,
         });
 
@@ -151,8 +163,18 @@ impl<P: Provider + Clone + 'static> PriceOracle<P> {
     ) -> Result<f64, alloy::contract::Error> {
         let pools = self
             .uniswap
-            .get_pools_with_provider(of_token.address, in_token.address, self.provider.clone())
-            .await?;
+            .get_pool_addresses_with_provider(
+                of_token.address,
+                in_token.address,
+                BlockId::latest(),
+                self.provider.clone(),
+            )
+            .await?
+            .into_iter()
+            .filter_map(|address| {
+                let index = self.pool_map.get(&address)?;
+                Some(self.pools[*index].clone())
+            });
 
         let amount = of_token.to_token_amount(1.0);
 

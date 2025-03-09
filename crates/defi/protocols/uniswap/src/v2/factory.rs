@@ -8,8 +8,6 @@ use alloy::{
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 
-use super::pool::UniswapV2Pool;
-
 lazy_static! {
     pub static ref FACTORY_ADDRESS: HashMap<ChainId, Address> =
         HashMap::from([(42161, address!("f1D7CC64Fb4452F05c498126312eBE29f30Fbcf9"))]);
@@ -33,22 +31,26 @@ impl UniswapV2Factory {
         Self { address }
     }
 
-    pub async fn get_pool_with_provider<P: Provider>(
+    pub async fn get_pool_address_with_provider<P: Provider>(
         &self,
         token0: Address,
         token1: Address,
+        block: BlockId,
         provider: P,
-    ) -> Result<Option<UniswapV2Pool>, alloy::contract::Error> {
+    ) -> Result<Option<Address>, alloy::contract::Error> {
         let instance = IUniswapV2FactoryInstance::new(self.address, &provider);
 
-        let address = instance.getPair(token0, token1).call().await?._0;
+        let address = instance
+            .getPair(token0, token1)
+            .block(block)
+            .call()
+            .await?
+            ._0;
 
         if address.is_zero() {
             Ok(None)
         } else {
-            Ok(Some(
-                UniswapV2Pool::new_with_provider(address, provider, BlockId::latest()).await?,
-            ))
+            Ok(Some(address))
         }
     }
 

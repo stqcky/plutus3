@@ -22,20 +22,21 @@ pub struct PancakeSwapV2Protocol {
 }
 
 #[async_trait]
-impl<P: Provider + 'static> Protocol<P> for PancakeSwapV2Protocol {
-    async fn get_pools_with_provider(
+impl<P: Provider + Clone + 'static> Protocol<P> for PancakeSwapV2Protocol {
+    async fn get_pool_addresses_with_provider(
         &self,
         token0: Address,
         token1: Address,
+        block: BlockId,
         provider: P,
-    ) -> Result<Vec<Arc<dyn LiquidityPool<P>>>, alloy::contract::Error> {
+    ) -> Result<Vec<Address>, alloy::contract::Error> {
         let pool = self
             .factory
-            .get_pool_with_provider(token0, token1, &provider)
+            .get_pool_address_with_provider(token0, token1, block, provider)
             .await?;
 
         if let Some(pool) = pool {
-            Ok(vec![Arc::new(pool)])
+            Ok(vec![pool])
         } else {
             Ok(vec![])
         }
@@ -54,7 +55,7 @@ impl<P: Provider + 'static> Protocol<P> for PancakeSwapV2Protocol {
 }
 
 #[async_trait]
-impl<P: Provider + 'static> DiscoverableProtocol<P> for PancakeSwapV2Protocol {
+impl<P: Provider + Clone + 'static> DiscoverableProtocol<P> for PancakeSwapV2Protocol {
     async fn discover(
         &self,
         from: BlockNumber,
@@ -71,7 +72,7 @@ impl<P: Provider + 'static> DiscoverableProtocol<P> for PancakeSwapV2Protocol {
     }
 }
 
-impl<P: Provider + 'static> ProtocolFactory<P> for PancakeSwapV2Protocol {
+impl<P: Provider + Clone + 'static> ProtocolFactory<P> for PancakeSwapV2Protocol {
     const IDENTIFIER: &str = "pancakeswap_v2";
 
     fn new(chain_id: ChainId) -> Option<Self> {

@@ -34,8 +34,8 @@ pub mod simple_cycles;
 type InnerTokenGraph = DiGraph<ERC20, WeightedPool>;
 
 pub struct TokenGraph<P: Provider> {
-    pub pools: Vec<Arc<dyn LiquidityPool<P>>>,
-    pool_map: AddressMap<usize>,
+    pub pools: Arc<Vec<Arc<dyn LiquidityPool<P>>>>,
+    pub pool_map: AddressMap<usize>,
 
     // just store addresses instead of whole objects?
     graph: InnerTokenGraph,
@@ -119,7 +119,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         std::fs::write("graph", format!("{dot}")).unwrap();
 
         Ok(Self {
-            pools,
+            pools: Arc::new(pools),
             pool_map,
             cycles: create_simple_cycles(&graph),
             graph,

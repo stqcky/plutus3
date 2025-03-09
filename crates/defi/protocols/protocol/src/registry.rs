@@ -21,7 +21,7 @@ pub struct ProtocolRegistry<P> {
     protocols: HashMap<String, Box<dyn DiscoverableProtocol<P>>>,
 }
 
-impl<P: Provider + Clone> ProtocolRegistry<P> {
+impl<P: Provider + Clone + 'static> ProtocolRegistry<P> {
     pub async fn new(provider: P) -> anyhow::Result<Self> {
         Ok(Self {
             chain_id: provider
