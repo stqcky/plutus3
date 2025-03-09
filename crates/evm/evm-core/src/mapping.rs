@@ -99,10 +99,15 @@ where
         block: BlockId,
         provider: P,
     ) -> Result<Vec<u8>, alloy::contract::Error> {
-        Ok(storage
-            .get_consecutive(slot.into(), VALUE_SLOT_SIZE, block, provider)
-            .await?
-            .into_iter()
+        let (v, cached) = storage
+            .get_consecutive_with_cache_state(slot.into(), VALUE_SLOT_SIZE, block, provider)
+            .await?;
+
+        if !cached {
+            // tracing::warn!("CACHE MISS {VALUE_SLOT_SIZE}");
+        }
+
+        Ok(v.into_iter()
             .flat_map(|value| value.to_le_bytes::<{ U256::BYTES }>())
             .collect())
     }

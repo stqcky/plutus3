@@ -1,0 +1,17 @@
+[package]
+name = "plutus-geth"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rocksdb.workspace = true
+anyhow.workspace = true
+alloy = { workspace = true, features = ["full", "rlp"] }
+
+[dev-dependencies]
+criterion.workspace = true
+dotenvy_macro.workspace = true
+
+[[bench]]
+name = "geth"
+harness = false

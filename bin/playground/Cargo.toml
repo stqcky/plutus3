@@ -16,11 +16,20 @@ plutus-monitoring.workspace = true
 plutus-token-graph.workspace = true
 
 plutus-executor.workspace = true
+plutus-geth.workspace = true
 
-alloy = { workspace = true, features = ["full"] }
+alloy = { workspace = true, features = ["full", "rlp"] }
 anyhow.workspace = true
 dotenvy_macro.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["fmt", "std", "env-filter"] }
 futures.workspace = true
+rocksdb = "0.23.0"
+trie-db = "0.28.0"
+hash-db = "0.16.0"
+ethereum-triedb = "0.1.1"
+primitive-types = "0.12.0"
+parity-db = "0.5.0"
+eth_trie = "0.5.0"
+hex.workspace = true

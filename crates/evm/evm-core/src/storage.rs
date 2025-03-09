@@ -46,6 +46,33 @@ impl SmartContractStorage {
         Ok(value)
     }
 
+    pub async fn get_with_cache_state<P: Provider>(
+        &self,
+        slot: U256,
+        block: BlockId,
+        provider: P,
+    ) -> Result<(U256, bool), alloy::contract::Error> {
+        {
+            // tracing::info!("CACHE HIT");
+            let storage = self.storage.read();
+
+            if let Some(value) = storage.get(&B256::from(slot)) {
+                return Ok((*value, true));
+            }
+        };
+
+        // tracing::warn!("CACHE MISS");
+        let value = provider
+            .get_storage_at(self.address, slot)
+            .block_id(block)
+            .await?;
+
+        self.storage.write().insert(slot.into(), value);
+        // tracing::info!("write time {:?}", now.elapsed());
+
+        Ok((value, false))
+    }
+
     pub async fn get_consecutive<P: Provider>(
         &self,
         slot: U256,
@@ -60,6 +87,28 @@ impl SmartContractStorage {
         }
 
         Ok(values)
+    }
+
+    pub async fn get_consecutive_with_cache_state<P: Provider>(
+        &self,
+        slot: U256,
+        amount: usize,
+        block: BlockId,
+        provider: P,
+    ) -> Result<(Vec<U256>, bool), alloy::contract::Error> {
+        let mut hit_cache = true;
+        let mut values = Vec::with_capacity(amount);
+
+        for i in 0..amount {
+            let (v, cached) = self
+                .get_with_cache_state(slot + U256::from(i), block, &provider)
+                .await?;
+            values.push(v);
+
+            hit_cache &= cached;
+        }
+
+        Ok((values, hit_cache))
     }
 
     pub fn get_consecutive_cached(&self, slot: U256, amount: usize) -> Option<Vec<U256>> {

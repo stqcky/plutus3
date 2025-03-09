@@ -9,7 +9,7 @@ members = [
     "crates/defi/protocols/uniswap", 
     "crates/evm/evm", 
     "crates/evm/evm-core", 
-    "crates/evm/evm-procmacro", "crates/executor", "crates/monitoring", 
+    "crates/evm/evm-procmacro", "crates/executor", "crates/geth", "crates/monitoring", 
     "crates/storage", "crates/tests",
     "crates/token-graph"
 ]
@@ -40,6 +40,7 @@ plutus-executor = { path = "crates/executor" }
 plutus-tests = { path = "crates/tests" }
 
 plutus-arbitrum = { path = "crates/arbitrum" }
+plutus-geth = { path = "crates/geth" }
 
 futures = "0.3.31"
 petgraph = "0.7.1"
@@ -61,6 +62,7 @@ dyn-clone = "1.0.18"
 hex = "0.4.3"
 rayon = "1.10.0"
 parking_lot = "0.12.3"
+rocksdb = "0.23.0"
 
 proc-macro2 = "1.0.93"
 quote = "1.0.38"
