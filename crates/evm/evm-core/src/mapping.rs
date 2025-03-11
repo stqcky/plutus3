@@ -61,6 +61,45 @@ where
         Ok(value)
     }
 
+    pub async fn fetch_many<P: Provider>(
+        &self,
+        storage: &SmartContractStorage,
+        keys: &[K],
+        block: BlockId,
+        provider: P,
+    ) -> Result<(), alloy::contract::Error> {
+        let base_slots = keys
+            .into_iter()
+            .map(|key| self.get_value_storage_slot(key))
+            .collect::<Vec<_>>();
+
+        for (&k, &slot) in keys.iter().zip(base_slots.iter()) {
+            self.discover_slot(k, slot);
+        }
+
+        let slots = base_slots
+            .into_iter()
+            .flat_map(|base_slot| (0..VALUE_SLOT_SIZE).map(move |i| base_slot + U256::from(i)))
+            .collect::<Vec<_>>();
+
+        let values = storage.get_many(&slots, block, provider).await?;
+
+        let mut mapping = self.mapping.write();
+
+        for (&k, values) in keys.into_iter().zip(values.chunks_exact(VALUE_SLOT_SIZE)) {
+            let value = V::decode(
+                values
+                    .into_iter()
+                    .flat_map(|value| value.to_le_bytes::<{ U256::BYTES }>())
+                    .collect(),
+            );
+
+            mapping.insert(k, value);
+        }
+
+        Ok(())
+    }
+
     pub fn insert(&self, k: K, v: V) {
         let slot = self.get_value_storage_slot(&k);
         self.discover_slot(k, slot);

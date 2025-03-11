@@ -1,6 +1,7 @@
-use std::time::Instant;
-
-use alloy::providers::Provider;
+use alloy::{
+    dyn_abi::parser::Storage, primitives::StorageValue, providers::Provider,
+    rpc::client::BatchRequest,
+};
 use parking_lot::RwLock;
 use revm::primitives::{Address, B256, U256, map::B256Map};
 use revm_database::BlockId;
@@ -44,6 +45,36 @@ impl SmartContractStorage {
         // tracing::info!("write time {:?}", now.elapsed());
 
         Ok(value)
+    }
+
+    pub async fn get_many<P: Provider>(
+        &self,
+        slots: &[U256],
+        block: BlockId,
+        provider: P,
+    ) -> Result<Vec<U256>, alloy::contract::Error> {
+        let mut batch = BatchRequest::new(provider.client());
+
+        let calls = slots
+            .into_iter()
+            .map(|slot| {
+                batch
+                    .add_call::<_, StorageValue>("eth_getStorageAt", &(self.address, slot, block))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        batch.send().await?;
+
+        let values = futures::future::try_join_all(calls).await?;
+
+        let mut storage = self.storage.write();
+
+        for (&slot, &value) in slots.into_iter().zip(values.iter()) {
+            storage.insert(slot.into(), value);
+        }
+
+        Ok(values)
     }
 
     pub async fn get_with_cache_state<P: Provider>(

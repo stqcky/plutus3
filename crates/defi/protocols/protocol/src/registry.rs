@@ -13,7 +13,7 @@ use tokio::sync::Semaphore;
 
 use crate::{DiscoverableProtocol, ProtocolFactory, filtering::PoolFilter, pool::LiquidityPool};
 
-pub const POOL_CREATION_TASK_LIMIT: usize = 16;
+pub const POOL_CREATION_TASK_LIMIT: usize = 32;
 
 pub struct ProtocolRegistry<P> {
     chain_id: ChainId,

@@ -1,7 +1,7 @@
 use alloy::sol_types::{SolCall, SolType};
 use hashbrown::HashMap;
 use parking_lot::RwLock;
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use IUniswapV3Pool::{IUniswapV3PoolInstance, slot0Return};
 use alloy::{
@@ -310,22 +310,36 @@ impl UniswapV3Pool {
 
         const PREFETCH_AMOUNT: i16 = 1000;
 
+        let words =
+            (current_word - PREFETCH_AMOUNT..=current_word + PREFETCH_AMOUNT).collect::<Vec<_>>();
+
+        self.tick_bitmap
+            .fetch_many(&self.storage, &words, block, &provider)
+            .await?;
+
+        let mut ticks = vec![];
+
         for i in -PREFETCH_AMOUNT..=PREFETCH_AMOUNT {
             let word = current_word + i;
-
-            self.tick_bitmap
+            let bitmap = self
+                .tick_bitmap
                 .get(&self.storage, &word, block, &provider)
                 .await?;
 
-            let populated_ticks =
-                TickLens::get_populated_ticks_in_word(self.address, word, block, &provider).await?;
+            for tick in 0..256 {
+                if bitmap & (U256::from(1) << U256::from(tick)) > U256::ZERO {
+                    let populated_tick = (I24::unchecked_from(word << 8)
+                        + I24::unchecked_from(tick))
+                        * self.tick_spacing;
 
-            for tick in populated_ticks {
-                self.ticks.insert(tick.tick, TickInfo {
-                    liquidity_net: tick.liquidity_net,
-                })
+                    ticks.push(populated_tick);
+                }
             }
         }
+
+        self.ticks
+            .fetch_many(&self.storage, &ticks, block, &provider)
+            .await?;
 
         Ok(())
     }

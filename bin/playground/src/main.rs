@@ -1,24 +1,10 @@
-use ethereum_triedb::{EIP1186Layout, keccak::KeccakHasher};
-use hash_db::{AsHashDB, HashDB, HashDBRef, Hasher};
-use parity_db::Db;
 use plutus_geth::db::GethDB;
-use primitive_types::H256;
-use rocksdb::{DBAccess, ReadOptions, ReadTier};
-use std::{
-    error::Error,
-    path::Path,
-    sync::Arc,
-    time::{Duration, Instant},
-};
-use trie_db::{Trie, TrieDB, TrieDBBuilder};
+use std::{error::Error, sync::Arc, time::Instant};
 
 use alloy::{
-    primitives::{Address, B256, StorageKey, address},
+    primitives::{StorageValue, U256, address, aliases::U24},
     providers::{Provider, ProviderBuilder},
-    rpc::{
-        client::{ClientBuilder, NoParams},
-        types::BlockTransactionsKind,
-    },
+    rpc::client::{BatchRequest, ClientBuilder},
 };
 use dotenvy_macro::dotenv;
 
@@ -37,17 +23,6 @@ impl std::fmt::Display for AmogusError {
     }
 }
 
-impl HashDBRef<KeccakHasher, Vec<u8>> for Amogus {
-    fn get(&self, key: &H256, prefix: hash_db::Prefix) -> Option<Vec<u8>> {
-        tracing::info!("{key:?} {prefix:?}");
-        todo!()
-    }
-
-    fn contains(&self, key: &H256, prefix: hash_db::Prefix) -> bool {
-        todo!()
-    }
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -63,24 +38,54 @@ async fn main() -> anyhow::Result<()> {
         ),
     );
 
-    // let now = Instant::now();
-    // provider
-    //     .get_storage_at(
-    //         address!("0xC24f7d8E51A64dc1238880BD00bb961D54cbeb29"),
-    //         U256::ZERO,
-    //     )
-    //     .await?;
-    // tracing::info!("{:?}", now.elapsed());
+    let block = provider.get_block_number().await?;
 
-    let db = GethDB::new(dotenv!("CLIENT_DB"))?;
-    let header = db.get_block_header()?;
+    let addr = address!("0xC24f7d8E51A64dc1238880BD00bb961D54cbeb29");
 
-    loop {
-        let trie = db.db.get(header.state_root)?;
-        tracing::info!("{trie:?}");
+    let block = format!("0x{}", hex::encode(block.to_be_bytes()));
 
-        tokio::time::sleep(Duration::from_millis(500)).await;
+    let now = Instant::now();
+
+    let mut batch = BatchRequest::new(provider.client());
+    let mut batch2 = BatchRequest::new(provider.client());
+
+    tracing::info!("{} {}", u16::MAX, U24::MAX);
+
+    let mut calls = vec![];
+    // let mut calls2 = vec![];
+
+    for i in 0..1000 {
+        calls.push(
+            batch
+                .add_call::<_, StorageValue>("eth_getStorageAt", &(addr, U256::from(i), "latest"))?
+                .into_future(),
+        );
+
+        // calls2.push(
+        //     batch2
+        //         .add_call::<_, StorageValue>("eth_getStorageAt", &(addr, U256::from(i), "latest"))?
+        //         .into_future(),
+        // );
     }
+
+    let now2 = Instant::now();
+    batch.send().await?;
+    // batch.send().await?;
+    tracing::info!("batch.send {:?}", now2.elapsed());
+
+    let now3 = Instant::now();
+    let calls = futures::future::join_all(calls).await;
+    // let calls2 = futures::future::join_all(calls2).await;
+    tracing::info!("calls {:?}", now3.elapsed());
+
+    // let mut calls = vec![];
+
+    // futures::future::join_all(vec![provider.get_storage_at(addr, U256::from(0))]);
+    // futures::future::join_all(calls).await;
+    tracing::info!("total {:?}", now.elapsed());
+
+    // let db = GethDB::new(dotenv!("CLIENT_DB"))?;
+    // let header = db.get_block_header()?;
 
     // let amogus = Amogus { db };
 
