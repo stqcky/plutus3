@@ -72,45 +72,21 @@ async fn main() -> anyhow::Result<()> {
     //     .await?;
     // tracing::info!("{:?}", now.elapsed());
 
-    // let db = GethDB::new(dotenv!("CLIENT_DB"))?;
-    // let snapshot = db.db.snapshot();
-    //
-    // let now = Instant::now();
-    // let header = db.get_block_header()?;
-    // tracing::info!("{:?}", now.elapsed());
-    // tracing::info!("{header:#?}");
+    let db = GethDB::new(dotenv!("CLIENT_DB"))?;
+    let header = db.get_block_header()?;
+
+    loop {
+        let trie = db.db.get(header.state_root)?;
+        tracing::info!("{trie:?}");
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
 
     // let amogus = Amogus { db };
 
     // let state_root = header.state_root;
 
     // tracing::info!("{}", state_root.to_string());
-
-    let block_number = provider.get_block_number().await? - 5;
-    let block = provider
-        .get_block_by_number((block_number - 5).into(), BlockTransactionsKind::Hashes)
-        .await?
-        .unwrap();
-    let tx_index = block.transactions.len().saturating_sub(1);
-
-    let contract = address!("0x94AA7b3828BaA9236D18F0e6c9915460340fA1a0");
-
-    let block = format!("0x{block_number:x}");
-    tracing::info!("{}", block);
-
-    let now = Instant::now();
-    let a: String = provider
-        .raw_request(
-            "debug_storageRangeAt".into(),
-            (
-                block,
-                0,
-                "0x94AA7b3828BaA9236D18F0e6c9915460340fA1a0",
-                "0x0000000000000000000000000000000000000000000000000000000000000000",
-                10,
-            ),
-        )
-        .await?;
 
     // let triedb = TrieDBBuilder::<EIP1186Layout<KeccakHasher>>::new(&amogus, &state_root).build();
     //

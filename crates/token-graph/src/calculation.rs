@@ -137,7 +137,7 @@ async fn optimize_profit<P: Provider + Clone>(
 
     let zero_for_one = opportunity[0].pool.token0().address == opportunity[0].token0.address;
 
-    let locked = if zero_for_one { locked0 } else { locked1 } / uint!(4_U256);
+    let locked = if zero_for_one { locked0 } else { locked1 } / uint!(10_U256);
 
     let mut lower_bound = uint!(1_U256);
     let mut upper_bound = locked;

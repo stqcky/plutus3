@@ -41,7 +41,7 @@ async fn token_graph_state_validity_realtime() -> anyhow::Result<()> {
     let health_monitor = HealthMonitor::new(provider.clone());
 
     health_monitor
-        .check_health(start_block, token_graph.pools.clone())
+        .check_health(start_block, token_graph.pools.clone().to_vec())
         .await??;
 
     let mut blocks_checked = 0;
@@ -57,7 +57,7 @@ async fn token_graph_state_validity_realtime() -> anyhow::Result<()> {
             .await;
 
         health_monitor
-            .check_health(block, token_graph.pools.clone())
+            .check_health(block, token_graph.pools.clone().to_vec())
             .await??;
 
         blocks_checked += 1;

@@ -76,5 +76,43 @@ fn swap_benchmark(c: &mut Criterion) -> anyhow::Result<()> {
     Ok(())
 }
 
-criterion_group!(benches, swap_benchmark);
+fn create_benchmark(c: &mut Criterion) {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let (provider, block) = runtime.block_on(async {
+        let provider = Arc::new(
+            ProviderBuilder::new().with_recommended_fillers().on_client(
+                ClientBuilder::default()
+                    .ipc(dotenv!("IPC_PROVIDER").to_string().into())
+                    .await
+                    .unwrap()
+                    .boxed(),
+            ),
+        );
+
+        let block: BlockId = provider.get_block_number().await.unwrap().into();
+
+        (provider.clone(), block)
+    });
+
+    let mut group = c.benchmark_group("v3_pool_create");
+    group.sample_size(10);
+
+    group.bench_function("v3_pool_create", |b| {
+        b.to_async(&runtime).iter(async || {
+            UniswapV3Pool::new_with_provider(
+                address!("0xC24f7d8E51A64dc1238880BD00bb961D54cbeb29"),
+                provider.clone(),
+                block,
+            )
+            .await
+            .unwrap()
+        })
+    });
+}
+
+criterion_group!(benches, create_benchmark);
 criterion_main!(benches);
