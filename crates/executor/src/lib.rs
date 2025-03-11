@@ -1,13 +1,13 @@
 use alloy::eips::eip2718::Encodable2718;
 use alloy::network::TransactionBuilder;
 use alloy::primitives::{Address, U256};
+use alloy::providers::Provider;
 use alloy::providers::WalletProvider;
 use alloy::rpc::types::TransactionRequest;
 use alloy::sol;
-use alloy::sol_types::{SolCall as _, SolType};
+use alloy::sol_types::SolType;
 use alloy::transports::Transport;
-use alloy::{providers::Provider, transports::BoxTransport};
-use contract::IExecutor::{self, IExecutorInstance, execute1695833Call};
+use contract::IExecutor::{self, IExecutorInstance};
 use dotenvy_macro::dotenv;
 use plutus_token_graph::calculation::{CalculatedOpportunity, CalculatedOpportunityLeg};
 use std::time::Instant;
@@ -69,7 +69,7 @@ impl<T: Transport + Clone, P: Provider<T> + Clone + WalletProvider + 'static> Ex
 
     pub async fn execute<PP: Provider>(
         &mut self,
-        opportunity: &CalculatedOpportunity<PP>,
+        opportunity: &CalculatedOpportunity<'_, PP>,
     ) -> anyhow::Result<()> {
         // self.send_dummy().await?;
         // return Ok(());

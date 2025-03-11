@@ -32,7 +32,7 @@ pub trait Protocol<P: Provider + Clone + 'static>: Send + Sync + DynClone {
         token1: Address,
         block: BlockId,
         provider: P,
-    ) -> Result<Vec<Arc<dyn LiquidityPool<P>>>, alloy::contract::Error> {
+    ) -> Result<Vec<Box<dyn LiquidityPool<P>>>, alloy::contract::Error> {
         let pool_addresses = self
             .get_pool_addresses_with_provider(token0, token1, block, provider.clone())
             .await?;
@@ -55,7 +55,7 @@ pub trait Protocol<P: Provider + Clone + 'static>: Send + Sync + DynClone {
         address: Address,
         provider: P,
         block: BlockId,
-    ) -> Result<Arc<dyn LiquidityPool<P>>, alloy::contract::Error>;
+    ) -> Result<Box<dyn LiquidityPool<P>>, alloy::contract::Error>;
 }
 
 dyn_clone::clone_trait_object!(<P: Provider> Protocol<P>);

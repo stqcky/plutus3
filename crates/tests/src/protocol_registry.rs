@@ -24,7 +24,7 @@ async fn protocol_registry_pools() -> anyhow::Result<()> {
         .await?;
 
     let health_monitor = HealthMonitor::new(provider.clone());
-    health_monitor.check_health(block, pools).await??;
+    health_monitor.check_health(block, &pools).await?;
 
     Ok(())
 }

@@ -1,5 +1,6 @@
 use IUniswapV2Router02::IUniswapV2Router02Instance;
 use alloy::{
+    eips::BlockId,
     primitives::{Address, U256, address},
     providers::Provider,
     sol,
@@ -36,10 +37,12 @@ impl<P: Provider> UniswapV2Router<P> {
         amount_in: U256,
         reserve_in: U256,
         reserve_out: U256,
+        block: BlockId,
     ) -> Result<U256, alloy::contract::Error> {
         Ok(self
             .0
             .getAmountOut(amount_in, reserve_in, reserve_out)
+            .block(block)
             .call()
             .await?
             .amountOut)

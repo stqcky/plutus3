@@ -47,8 +47,8 @@ impl<P: Provider + 'static> LiquidityPool<P> for SushiSwapV2Pool {
         <UniswapV2Pool as LiquidityPool<P>>::simulate_swap(&self.0, token, amount, block)
     }
 
-    fn apply_storage_changes(&self, changes: hashbrown::HashMap<U256, U256>) {
-        <UniswapV2Pool as LiquidityPool<P>>::apply_storage_changes(&self.0, changes);
+    fn apply_storage_changes(&mut self, changes: hashbrown::HashMap<U256, U256>) {
+        <UniswapV2Pool as LiquidityPool<P>>::apply_storage_changes(&mut self.0, changes);
     }
 
     fn is_liquidity_valid(&self) -> bool {
@@ -121,7 +121,7 @@ mod tests {
         address!("3D11C7cf46914524C87829d12e41Fe0B2d7AB774"),
     ];
 
-    // #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test(flavor = "multi_thread")]
     async fn swaps_are_correct() -> anyhow::Result<()> {
         let provider = Arc::new(
             ProviderBuilder::new().with_recommended_fillers().on_client(
@@ -140,10 +140,10 @@ mod tests {
             let pool =
                 SushiSwapV2Pool::new_with_provider(*address, provider.clone(), block).await?;
 
-            let reserves = pool.reserves.read();
+            let reserves = pool.reserves;
 
             for amount in 1..100 {
-                let token0_out = pool.simulate_swap(
+                let token0_out = pool.swap(
                     pool.token0.address,
                     pool.token0.to_token_amount(amount as f64),
                     block,
@@ -154,6 +154,7 @@ mod tests {
                         pool.token0.to_token_amount(amount as f64),
                         U256::from(reserves.0),
                         U256::from(reserves.1),
+                        block,
                     )
                     .await?;
 
@@ -164,7 +165,7 @@ mod tests {
                     );
                 }
 
-                let token1_out = pool.simulate_swap(
+                let token1_out = pool.swap(
                     pool.token1.address,
                     pool.token1.to_token_amount(amount as f64),
                     block,
@@ -175,6 +176,7 @@ mod tests {
                         pool.token1.to_token_amount(amount as f64),
                         U256::from(reserves.1),
                         U256::from(reserves.0),
+                        block,
                     )
                     .await?;
 

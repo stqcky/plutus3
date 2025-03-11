@@ -1,154 +1,137 @@
 use alloy::eips::BlockId;
 use alloy::primitives::U256;
 use alloy::primitives::address;
-use alloy::primitives::map::AddressMap;
-use futures::StreamExt;
-use plutus_defi_erc20::ERC20;
-use plutus_defi_protocols_protocol::Protocol;
-use plutus_defi_protocols_protocol::ProtocolFactory;
-use plutus_defi_protocols_protocol::pool::LiquidityPool;
-use std::{
-    num::NonZeroUsize,
-    sync::Arc,
-    time::{Duration, Instant},
-};
-use tokio::sync::Semaphore;
-
 use alloy::{primitives::Address, providers::Provider};
 use lru::LruCache;
-use parking_lot::Mutex;
-use plutus_defi_protocols_uniswap::v3::UniswapV3Protocol;
+use plutus_defi_erc20::ERC20;
+use plutus_token_graph::TokenGraph;
+use rayon::iter::IntoParallelIterator as _;
+use rayon::iter::ParallelIterator as _;
+use std::{
+    num::NonZeroUsize,
+    time::{Duration, Instant},
+};
 
 pub const USDT: Address = address!("Fd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9");
 pub const WETH: Address = address!("82aF49447D8a07e3bd95BD0d56f35241523fBab1");
 pub const USDC: Address = address!("af88d065e77c8cc2239327c5edb3a432268e5831");
 
-pub struct PriceOracle<P> {
-    price_cache: Mutex<LruCache<Address, (f64, Instant)>>,
-    provider: P,
-    uniswap: UniswapV3Protocol,
-
-    // FIXME: no. this is horrendous.
-    pools: Arc<Vec<Arc<dyn LiquidityPool<P>>>>,
-    pool_map: AddressMap<usize>,
+pub struct PriceOracle {
+    price_cache: LruCache<Address, (f64, Instant)>,
 
     usdt: ERC20,
     usdc: ERC20,
     weth: ERC20,
 }
 
-const CACHE_TTL: Duration = Duration::from_secs(120);
+const CACHE_TTL: Duration = Duration::from_secs(240);
 
-impl<P: Provider + Clone + 'static> PriceOracle<P> {
-    pub async fn new(
+// FIXME: this is badly designed
+impl PriceOracle {
+    pub async fn new<P: Provider + Clone + 'static>(
+        tokens: Vec<ERC20>,
+        token_graph: &TokenGraph<P>,
         provider: P,
-        pools: Arc<Vec<Arc<dyn LiquidityPool<P>>>>,
-        pool_map: AddressMap<usize>,
-    ) -> anyhow::Result<Arc<Self>> {
-        let chain_id = provider.get_chain_id().await?;
-
-        let oracle = Arc::new(Self {
-            price_cache: Mutex::new(LruCache::new(NonZeroUsize::new(100).unwrap())),
+    ) -> anyhow::Result<Self> {
+        let mut oracle = Self {
+            price_cache: LruCache::new(NonZeroUsize::new(100).unwrap()),
             usdt: ERC20::new_with_provider(USDT, &provider).await?,
             usdc: ERC20::new_with_provider(USDC, &provider).await?,
             weth: ERC20::new_with_provider(WETH, &provider).await?,
-            uniswap: <UniswapV3Protocol as ProtocolFactory<P>>::new(chain_id).unwrap(),
-            pools,
-            pool_map,
-            provider,
-        });
+        };
 
-        oracle.cache_price(
-            oracle.weth.address,
-            oracle.clone().get_uniswap_v3_price(&oracle.weth).await,
-        );
+        let weth = oracle.weth.clone();
+        let weth_price = oracle.get_uniswap_v3_price(&weth, token_graph);
+        oracle.cache_price(oracle.weth.address, weth_price);
+
+        oracle.prefetch_prices(tokens, token_graph);
 
         Ok(oracle)
     }
 
-    pub async fn prefetch_prices(self: Arc<Self>, tokens: Vec<ERC20>) {
-        let semaphore = Arc::new(Semaphore::new(24));
-
-        let tasks: Vec<_> = tokens
-            .into_iter()
-            .map(|token| {
-                let semaphore = semaphore.clone();
-                let oracle = self.clone();
-
-                tokio::spawn(async move {
-                    let _permit = semaphore.acquire_owned().await.unwrap();
-
-                    let price = oracle.clone().get_uniswap_v3_price(&token).await;
-                    oracle.cache_price(token.address, price);
-                })
-            })
-            .collect();
-
-        futures::future::try_join_all(tasks).await.unwrap();
+    fn prefetch_prices<P: Provider + Clone + 'static>(
+        &mut self,
+        tokens: Vec<ERC20>,
+        token_graph: &TokenGraph<P>,
+    ) {
+        for token in tokens {
+            let price = self.get_uniswap_v3_price(&token, token_graph);
+            self.cache_price(token.address, price);
+        }
     }
 
-    pub async fn get_price(self: Arc<Self>, token: &ERC20) -> f64 {
-        if let Some(price) = self.clone().get_cached_price(token) {
+    pub fn get_price<P: Provider + Clone + 'static>(
+        &mut self,
+        token: &ERC20,
+        token_graph: &TokenGraph<P>,
+    ) -> f64 {
+        if let Some(price) = self.get_cached_price(token, token_graph) {
             return price;
         }
 
-        let price = Box::pin(self.clone().get_uniswap_v3_price(token)).await;
+        let price = self.get_uniswap_v3_price(token, token_graph);
         self.cache_price(token.address, price);
 
         price
     }
 
-    pub async fn get_eth_price(self: Arc<Self>, amount: U256) -> f64 {
-        self.clone().get_price(&self.weth).await * self.weth.to_float_amount(amount)
+    pub fn get_eth_price<P: Provider + Clone + 'static>(
+        &mut self,
+        amount: U256,
+        token_graph: &TokenGraph<P>,
+    ) -> f64 {
+        let weth = self.weth.clone();
+        self.get_price(&weth, token_graph) * self.weth.to_float_amount(amount)
     }
 
-    fn get_cached_price(self: Arc<Self>, token: &ERC20) -> Option<f64> {
-        let mut cache = self.price_cache.lock();
-
-        match cache.get(&token.address) {
+    fn get_cached_price<P: Provider + Clone + 'static>(
+        &mut self,
+        token: &ERC20,
+        token_graph: &TokenGraph<P>,
+    ) -> Option<f64> {
+        match self.price_cache.get(&token.address) {
             Some((price, timestamp)) if timestamp.elapsed() < CACHE_TTL => Some(*price),
-            Some((price, _)) => {
-                let oracle = self.clone();
+            _ => {
                 let token = token.to_owned();
 
-                tokio::spawn(async move {
-                    let price = oracle.clone().get_uniswap_v3_price(&token).await;
-                    oracle.cache_price(token.address, price);
-                });
+                let price = self.get_uniswap_v3_price(&token, token_graph);
+                self.cache_price(token.address, price);
 
-                Some(*price)
+                Some(price)
             }
-            _ => None,
         }
     }
 
-    fn cache_price(&self, token: Address, price: f64) {
-        let mut price_cache = self.price_cache.lock();
-        price_cache.push(token, (price, Instant::now()));
+    fn cache_price(&mut self, token: Address, price: f64) {
+        self.price_cache.push(token, (price, Instant::now()));
     }
 
-    async fn get_uniswap_v3_price(self: Arc<Self>, token: &ERC20) -> f64 {
+    fn get_uniswap_v3_price<P: Provider + Clone + 'static>(
+        &mut self,
+        token: &ERC20,
+        token_graph: &TokenGraph<P>,
+    ) -> f64 {
         let usdt_value = if token.address != self.usdt.address {
-            self.get_token_value(token, &self.usdt)
-                .await
+            self.get_token_value(token, &self.usdt, token_graph)
                 .unwrap_or_default()
         } else {
             1.0
         };
 
         let usdc_value = if token.address != self.usdc.address {
-            self.get_token_value(token, &self.usdc)
-                .await
+            self.get_token_value(token, &self.usdc, token_graph)
                 .unwrap_or_default()
         } else {
             1.0
         };
 
         let weth_value = if token.address != self.weth.address {
-            self.get_token_value(token, &self.weth)
-                .await
+            let weth = self.weth.clone();
+            let weth_price = self.get_price(&weth, token_graph);
+
+            self.get_token_value(token, &self.weth, token_graph)
                 .unwrap_or_default()
-                * self.clone().get_price(&self.weth).await
+                * weth_price
         } else {
             1.0
         };
@@ -156,37 +139,24 @@ impl<P: Provider + Clone + 'static> PriceOracle<P> {
         usdt_value.max(usdc_value).max(weth_value)
     }
 
-    async fn get_token_value(
+    fn get_token_value<P: Provider + Clone + 'static>(
         &self,
         of_token: &ERC20,
         in_token: &ERC20,
+        token_graph: &TokenGraph<P>,
     ) -> Result<f64, alloy::contract::Error> {
-        let pools = self
-            .uniswap
-            .get_pool_addresses_with_provider(
-                of_token.address,
-                in_token.address,
-                BlockId::latest(),
-                self.provider.clone(),
-            )
-            .await?
+        let pools: Vec<_> = token_graph
+            .get_pools_between_tokens(of_token, in_token)
             .into_iter()
-            .filter_map(|address| {
-                let index = self.pool_map.get(&address)?;
-                Some(self.pools[*index].clone())
-            });
+            .filter(|pool| pool.identifier() == "uniswap_v3")
+            .collect();
 
         let amount = of_token.to_token_amount(1.0);
 
-        let values = futures::future::join_all(
-            futures::stream::iter(pools.into_iter())
-                .map(|pool| async move {
-                    pool.simulate_swap(of_token.address, amount, BlockId::latest())
-                })
-                .collect::<Vec<_>>()
-                .await,
-        )
-        .await;
+        let values = pools
+            .into_par_iter()
+            .map(|pool| pool.simulate_swap(of_token.address, amount, BlockId::latest()))
+            .collect::<Vec<_>>();
 
         Ok(in_token.to_float_amount(values.into_iter().max().unwrap_or_default()))
     }

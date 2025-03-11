@@ -1,5 +1,4 @@
 use alloy::sol_types::SolType;
-use parking_lot::RwLock;
 use std::sync::Arc;
 
 use IUniswapV2Pool::IUniswapV2PoolInstance;
@@ -45,7 +44,7 @@ pub struct UniswapV2Pool {
     pub token0: ERC20,
     pub token1: ERC20,
 
-    pub reserves: RwLock<Reserves>,
+    pub reserves: Reserves,
 
     pub swap_cache: SwapCalculationCache,
 }
@@ -72,7 +71,7 @@ impl UniswapV2Pool {
                 &provider,
             )
             .await?,
-            reserves: RwLock::new(Reserves(reserves._reserve0, reserves._reserve1)),
+            reserves: Reserves(reserves._reserve0, reserves._reserve1),
             swap_cache: SwapCalculationCache::default(),
         })
     }
@@ -85,7 +84,7 @@ impl UniswapV2Pool {
         }
 
         let (reserve_in, reserve_out) = {
-            let reserves = self.reserves.read();
+            let reserves = self.reserves;
 
             if zero_for_one {
                 (U256::from(reserves.0), U256::from(reserves.1))
@@ -128,25 +127,21 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
         self.swap(token, amount, block)
     }
 
-    fn apply_storage_changes(&self, changes: hashbrown::HashMap<U256, U256>) {
+    fn apply_storage_changes(&mut self, changes: hashbrown::HashMap<U256, U256>) {
         let reserves_slot_value = changes.get(&uint!(8U256));
 
         if let Some(value) = reserves_slot_value {
             let reserves = Reserves::from_storage_value(*value);
-            *self.reserves.write() = reserves;
+            self.reserves = reserves;
         }
     }
 
     fn is_liquidity_valid(&self) -> bool {
-        let reserves = self.reserves.read();
-
-        !reserves.0.is_zero() && !reserves.1.is_zero()
+        !self.reserves.0.is_zero() && !self.reserves.1.is_zero()
     }
 
     fn tokens_locked(&self) -> (U256, U256) {
-        let reserves = self.reserves.read();
-
-        (U256::from(reserves.0), U256::from(reserves.1))
+        (U256::from(self.reserves.0), U256::from(self.reserves.1))
     }
 
     fn identifier(&self) -> &'static str {
@@ -175,21 +170,20 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
         let block: BlockId = block_number.into();
 
         let reserves = instance.getReserves().block(block).call().await?;
-        let self_reserves = self.reserves.read();
 
-        if reserves._reserve0 != self_reserves.0 {
+        if reserves._reserve0 != self.reserves.0 {
             bail!(
                 "reserve0 mismatch on block {block_number}, real {} != {}",
                 reserves._reserve0,
-                self_reserves.0
+                self.reserves.0
             );
         }
 
-        if reserves._reserve1 != self_reserves.1 {
+        if reserves._reserve1 != self.reserves.1 {
             bail!(
                 "reserve1 mismatch on block {block_number}, real {} != {}",
                 reserves._reserve1,
-                self_reserves.1
+                self.reserves.1
             );
         }
 
@@ -198,15 +192,10 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV2Pool {
 
     async fn update_with_provider(
         &self,
-        provider: P,
-        block: BlockId,
+        _provider: P,
+        _block: BlockId,
     ) -> Result<(), alloy::contract::Error> {
-        let instance = IUniswapV2PoolInstance::new(self.address, provider);
-        let reserves = instance.getReserves().block(block).call().await?;
-
-        *self.reserves.write() = Reserves(reserves._reserve0, reserves._reserve1);
-
-        Ok(())
+        unimplemented!()
     }
 
     fn create_payload(
@@ -266,10 +255,10 @@ mod tests {
         for address in POOLS {
             let pool = UniswapV2Pool::new_with_provider(*address, provider.clone(), block).await?;
 
-            let reserves = pool.reserves.read();
+            let reserves = pool.reserves;
 
             for amount in 1..100 {
-                let token0_out = pool.simulate_swap(
+                let token0_out = pool.swap(
                     pool.token0.address,
                     pool.token0.to_token_amount(amount as f64),
                     block,
@@ -280,6 +269,7 @@ mod tests {
                         pool.token0.to_token_amount(amount as f64),
                         U256::from(reserves.0),
                         U256::from(reserves.1),
+                        block,
                     )
                     .await?;
 
@@ -290,7 +280,7 @@ mod tests {
                     );
                 }
 
-                let token1_out = pool.simulate_swap(
+                let token1_out = pool.swap(
                     pool.token1.address,
                     pool.token1.to_token_amount(amount as f64),
                     block,
@@ -301,6 +291,7 @@ mod tests {
                         pool.token1.to_token_amount(amount as f64),
                         U256::from(reserves.1),
                         U256::from(reserves.0),
+                        block,
                     )
                     .await?;
 

@@ -1,4 +1,4 @@
-use std::{fmt::Display, sync::Arc};
+use std::fmt::Display;
 
 use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::pool::LiquidityPool;
@@ -9,23 +9,23 @@ use plutus_evm::{
 
 use crate::Opportunity;
 
-pub struct CalculatedOpportunityLeg<P: Provider> {
+pub struct CalculatedOpportunityLeg<'a, P: Provider> {
     pub token_in: ERC20,
     pub token_out: ERC20,
-    pub pool: Arc<dyn LiquidityPool<P>>,
+    pub pool: &'a dyn LiquidityPool<P>,
 
     pub amount_in: U256,
     pub amount_out: U256,
 }
 
-pub struct CalculatedOpportunity<P: Provider> {
+pub struct CalculatedOpportunity<'a, P: Provider> {
     pub base_token: ERC20,
     pub profit: U256,
 
-    pub legs: Vec<CalculatedOpportunityLeg<P>>,
+    pub legs: Vec<CalculatedOpportunityLeg<'a, P>>,
 }
 
-impl<P: Provider> Display for CalculatedOpportunity<P> {
+impl<P: Provider> Display for CalculatedOpportunity<'_, P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "------------------")?;
         writeln!(

@@ -97,7 +97,7 @@ impl<P: Provider + Clone + 'static> ProtocolRegistry<P> {
         &self,
         records: Vec<IdentifiedLiquidityPool>,
         block: BlockId,
-    ) -> anyhow::Result<Vec<Arc<dyn LiquidityPool<P>>>>
+    ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
     where
         P: Clone + 'static,
     {
@@ -139,7 +139,7 @@ impl<P: Provider + Clone + 'static> ProtocolRegistry<P> {
         &self,
         storage: &Storage,
         block: BlockId,
-    ) -> anyhow::Result<Vec<Arc<dyn LiquidityPool<P>>>>
+    ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
     where
         P: std::fmt::Debug + 'static + Clone,
     {
@@ -152,7 +152,7 @@ impl<P: Provider + Clone + 'static> ProtocolRegistry<P> {
         protocol: Arc<dyn DiscoverableProtocol<P>>,
         addresses: Vec<Address>,
         block: BlockId,
-    ) -> anyhow::Result<Vec<Arc<dyn LiquidityPool<P>>>>
+    ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
     where
         P: Clone + 'static,
     {
@@ -193,7 +193,7 @@ impl<P: Provider + Clone + 'static> ProtocolRegistry<P> {
         storage: &Storage,
         usd_value: f64,
         block: BlockId,
-    ) -> anyhow::Result<Vec<Arc<dyn LiquidityPool<P>>>>
+    ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
     where
         P: std::fmt::Debug + 'static + Clone,
     {
@@ -227,7 +227,7 @@ impl<P: Provider + Clone + 'static> ProtocolRegistry<P> {
     pub async fn cache_filtered_pools(
         &self,
         storage: &Storage,
-        pools: &[Arc<dyn LiquidityPool<P>>],
+        pools: &[Box<dyn LiquidityPool<P>>],
     ) -> anyhow::Result<()> {
         let identified_pools: Vec<_> = pools
             .iter()
@@ -246,7 +246,7 @@ impl<P: Provider + Clone + 'static> ProtocolRegistry<P> {
         &self,
         storage: &Storage,
         block: BlockId,
-    ) -> anyhow::Result<Vec<Arc<dyn LiquidityPool<P>>>>
+    ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
     where
         P: Clone + 'static,
     {

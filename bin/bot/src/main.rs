@@ -107,25 +107,16 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("creating token graph");
     let now = Instant::now();
-    let mut token_graph = TokenGraph::new(pools.clone(), 0.001, start_block.into())?;
+    let mut token_graph = TokenGraph::new(pools, 0.001, start_block.into())?;
     tracing::info!("token graph created in {:?}", now.elapsed());
-
-    let price_oracle = PriceOracle::new(
-        provider.clone(),
-        token_graph.pools.clone(),
-        token_graph.pool_map.clone(),
-    )
-    .await?;
 
     tracing::info!("prefetching prices");
     let now = Instant::now();
-    price_oracle
-        .clone()
-        .prefetch_prices(token_graph.get_tokens())
-        .await;
+    let mut price_oracle =
+        PriceOracle::new(token_graph.get_tokens(), &token_graph, provider.clone()).await?;
     tracing::info!("prefetched prices in {:?}", now.elapsed());
 
-    let health_monitor = HealthMonitor::new(provider.clone());
+    // let health_monitor = HealthMonitor::new(provider.clone());
     let mut last_health_check = Instant::now();
 
     let mut executor = Executor::new(
@@ -186,10 +177,7 @@ async fn main() -> anyhow::Result<()> {
 
         let now_prices = Instant::now();
         for opportunity in opportunities {
-            let usd_price = price_oracle
-                .clone()
-                .get_price(&opportunity.base_token)
-                .await;
+            let usd_price = price_oracle.get_price(&opportunity.base_token, &token_graph);
             let usd_value = usd_price * opportunity.base_token.to_float_amount(opportunity.profit);
 
             opportunities_with_usd.push((opportunity, usd_value));
@@ -203,10 +191,8 @@ async fn main() -> anyhow::Result<()> {
             let usd_value = best_opportunity.1;
 
             let base_fee_per_gas = state_change.block_header.base_fee_per_gas.unwrap();
-            let gas_price = price_oracle
-                .clone()
-                .get_eth_price(U256::from(base_fee_per_gas * 400_000))
-                .await;
+            let gas_price =
+                price_oracle.get_eth_price(U256::from(base_fee_per_gas * 400_000), &token_graph);
 
             // tracing::info!(
             //     "ETH: {}",

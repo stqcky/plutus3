@@ -19,7 +19,7 @@ use plutus_token_graph::{
 async fn create_opportunity<P: Provider + Clone + 'static>(
     provider: P,
     block: BlockId,
-) -> Opportunity<P> {
+) -> Opportunity<'static, P> {
     let uniswap =
         <UniswapV3Protocol as ProtocolFactory<P>>::new(provider.get_chain_id().await.unwrap())
             .unwrap();
@@ -38,14 +38,16 @@ async fn create_opportunity<P: Provider + Clone + 'static>(
             )
             .await
             .unwrap(),
-            pool: uniswap
-                .create_pool_with_provider(
-                    address!("0x9FCBC372A15E96E85ACF37C84C91DA21dA005398"),
-                    provider.clone(),
-                    block,
-                )
-                .await
-                .unwrap(),
+            pool: Box::leak(
+                uniswap
+                    .create_pool_with_provider(
+                        address!("0x9FCBC372A15E96E85ACF37C84C91DA21dA005398"),
+                        provider.clone(),
+                        block,
+                    )
+                    .await
+                    .unwrap(),
+            ),
         },
         OpportunityLeg {
             token0: ERC20::new_with_provider(
@@ -60,14 +62,16 @@ async fn create_opportunity<P: Provider + Clone + 'static>(
             )
             .await
             .unwrap(),
-            pool: uniswap
-                .create_pool_with_provider(
-                    address!("0x553F37D829cD36C050A51BB5dDf26bD1Ec5A57dD"),
-                    provider.clone(),
-                    block,
-                )
-                .await
-                .unwrap(),
+            pool: Box::leak(
+                uniswap
+                    .create_pool_with_provider(
+                        address!("0x553F37D829cD36C050A51BB5dDf26bD1Ec5A57dD"),
+                        provider.clone(),
+                        block,
+                    )
+                    .await
+                    .unwrap(),
+            ),
         },
         OpportunityLeg {
             token0: ERC20::new_with_provider(
@@ -82,14 +86,16 @@ async fn create_opportunity<P: Provider + Clone + 'static>(
             )
             .await
             .unwrap(),
-            pool: uniswap
-                .create_pool_with_provider(
-                    address!("0x44c40a6544f29f331720E989Cd2724306b21c0d0"),
-                    provider.clone(),
-                    block,
-                )
-                .await
-                .unwrap(),
+            pool: Box::leak(
+                uniswap
+                    .create_pool_with_provider(
+                        address!("0x44c40a6544f29f331720E989Cd2724306b21c0d0"),
+                        provider.clone(),
+                        block,
+                    )
+                    .await
+                    .unwrap(),
+            ),
         },
     ]
 }
@@ -100,7 +106,7 @@ fn criterion_benchmark(c: &mut Criterion) -> anyhow::Result<()> {
         .build()
         .unwrap();
 
-    let (provider, pools, token_graph, block, opportunity) = runtime.block_on(async {
+    let (provider, token_graph, block, opportunity) = runtime.block_on(async {
         let provider = Arc::new(
             ProviderBuilder::new().with_recommended_fillers().on_client(
                 ClientBuilder::default()
@@ -128,24 +134,23 @@ fn criterion_benchmark(c: &mut Criterion) -> anyhow::Result<()> {
             .await
             .unwrap();
 
-        let token_graph = TokenGraph::new(pools.clone(), 0.001, block.into()).unwrap();
+        let token_graph = TokenGraph::new(pools, 0.001, block.into()).unwrap();
 
         // let opportunity: Opportunity<>
 
         (
             provider.clone(),
-            pools,
             token_graph,
             block,
             create_opportunity(provider.clone(), block.into()).await,
         )
     });
 
-    let target_tokens =
-        AddressSet::from_iter([address!("82aF49447D8a07e3bd95BD0d56f35241523fBab1")]);
-
-    let target_pools =
-        AddressSet::from_iter(pools.iter().map(|pool| pool.address()).collect::<Vec<_>>());
+    // let target_tokens =
+    //     AddressSet::from_iter([address!("82aF49447D8a07e3bd95BD0d56f35241523fBab1")]);
+    //
+    // let target_pools =
+    //     AddressSet::from_iter(pools.iter().map(|pool| pool.address()).collect::<Vec<_>>());
 
     // c.bench_function("find_uncalculated_opportunities", |b| {
     //     b.iter(|| token_graph.simple_finding(target_tokens.clone(), target_pools.clone()))

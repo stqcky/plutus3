@@ -89,7 +89,7 @@ impl TokenValueCache {
         protocols: Arc<Vec<Box<dyn DiscoverableProtocol<P>>>>,
         block: BlockId,
         provider: P,
-    ) -> Vec<Arc<dyn LiquidityPool<P>>> {
+    ) -> Vec<Box<dyn LiquidityPool<P>>> {
         let mut pools = vec![];
 
         for protocol in protocols.iter() {
@@ -155,11 +155,11 @@ impl<P: Provider + std::fmt::Debug + 'static + Clone> PoolFilter<P> {
 
     pub async fn filter_pools(
         self,
-        pools: Vec<Arc<dyn LiquidityPool<P>>>,
+        pools: Vec<Box<dyn LiquidityPool<P>>>,
         provider: P,
         protocols: Vec<Box<dyn DiscoverableProtocol<P>>>,
         block: BlockId,
-    ) -> anyhow::Result<Vec<Arc<dyn LiquidityPool<P>>>>
+    ) -> anyhow::Result<Vec<Box<dyn LiquidityPool<P>>>>
     where
         P: Clone,
     {

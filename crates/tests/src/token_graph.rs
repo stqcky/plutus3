@@ -1,5 +1,4 @@
-use alloy::{providers::Provider, rpc::types::state};
-use futures::future;
+use alloy::providers::Provider;
 use plutus_defi_protocols_pancakeswap::v2::PancakeSwapV2Protocol;
 use plutus_defi_protocols_protocol::registry::ProtocolRegistry;
 use plutus_defi_protocols_uniswap::{v2::UniswapV2Protocol, v3::UniswapV3Protocol};
@@ -35,14 +34,13 @@ async fn token_graph_state_validity_realtime() -> anyhow::Result<()> {
         .get_cached_filtered_pools(&storage, start_block.into())
         .await?;
 
-    let mut token_graph =
-        TokenGraph::new(pools, 0.001, start_block.into(), provider.clone()).await?;
+    let mut token_graph = TokenGraph::new(pools, 0.001, start_block.into())?;
 
     let health_monitor = HealthMonitor::new(provider.clone());
 
     health_monitor
-        .check_health(start_block, token_graph.pools.clone().to_vec())
-        .await??;
+        .check_health(start_block, &token_graph.pools)
+        .await?;
 
     let mut blocks_checked = 0;
 
@@ -52,13 +50,11 @@ async fn token_graph_state_validity_realtime() -> anyhow::Result<()> {
 
         println!("checking {block}");
 
-        token_graph
-            .apply_state(state_change.changes, provider.clone(), block.into())
-            .await;
+        token_graph.apply_state(state_change.changes, block.into());
 
         health_monitor
-            .check_health(block, token_graph.pools.clone().to_vec())
-            .await??;
+            .check_health(block, &token_graph.pools)
+            .await?;
 
         blocks_checked += 1;
 

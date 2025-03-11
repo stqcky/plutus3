@@ -51,7 +51,7 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV2Pool {
         }
 
         let (reserve_in, reserve_out) = {
-            let reserves = self.reserves.read();
+            let reserves = self.reserves;
 
             if zero_for_one {
                 (U256::from(reserves.0), U256::from(reserves.1))
@@ -76,8 +76,8 @@ impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV2Pool {
         amount_out
     }
 
-    fn apply_storage_changes(&self, changes: hashbrown::HashMap<U256, U256>) {
-        <UniswapV2Pool as LiquidityPool<P>>::apply_storage_changes(&self.0, changes);
+    fn apply_storage_changes(&mut self, changes: hashbrown::HashMap<U256, U256>) {
+        <UniswapV2Pool as LiquidityPool<P>>::apply_storage_changes(&mut self.0, changes);
     }
 
     fn is_liquidity_valid(&self) -> bool {
@@ -150,6 +150,13 @@ mod tests {
         address!("3D11C7cf46914524C87829d12e41Fe0B2d7AB774"),
     ];
 
+    fn as_liquidity_pool<P: Provider + 'static>(
+        pool: PancakeSwapV2Pool,
+        _provider: P,
+    ) -> Box<dyn LiquidityPool<P>> {
+        Box::new(pool) as Box<dyn LiquidityPool<P>>
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn swaps_are_correct() -> anyhow::Result<()> {
         let provider = Arc::new(
@@ -169,10 +176,15 @@ mod tests {
             let pool =
                 PancakeSwapV2Pool::new_with_provider(*address, provider.clone(), block).await?;
 
-            let reserves = *pool.reserves.read();
+            let liquidity_pool = as_liquidity_pool(
+                PancakeSwapV2Pool::new_with_provider(*address, provider.clone(), block).await?,
+                provider.clone(),
+            );
+
+            let reserves = pool.reserves;
 
             for amount in 1..100 {
-                let token0_out = pool.simulate_swap(
+                let token0_out = liquidity_pool.simulate_swap(
                     pool.token0.address,
                     pool.token0.to_token_amount(amount as f64),
                     block,
@@ -183,6 +195,7 @@ mod tests {
                         pool.token0.to_token_amount(amount as f64),
                         U256::from(reserves.0),
                         U256::from(reserves.1),
+                        block,
                     )
                     .await?;
 
@@ -193,7 +206,7 @@ mod tests {
                     );
                 }
 
-                let token1_out = pool.simulate_swap(
+                let token1_out = liquidity_pool.simulate_swap(
                     pool.token1.address,
                     pool.token1.to_token_amount(amount as f64),
                     block,
@@ -204,6 +217,7 @@ mod tests {
                         pool.token1.to_token_amount(amount as f64),
                         U256::from(reserves.1),
                         U256::from(reserves.0),
+                        block,
                     )
                     .await?;
 

@@ -47,8 +47,8 @@ impl<P: Provider + 'static> LiquidityPool<P> for SushiSwapV3Pool {
         <UniswapV3Pool as LiquidityPool<P>>::simulate_swap(&self.0, token, amount, block)
     }
 
-    fn apply_storage_changes(&self, changes: hashbrown::HashMap<U256, U256>) {
-        <UniswapV3Pool as LiquidityPool<P>>::apply_storage_changes(&self.0, changes);
+    fn apply_storage_changes(&mut self, changes: hashbrown::HashMap<U256, U256>) {
+        <UniswapV3Pool as LiquidityPool<P>>::apply_storage_changes(&mut self.0, changes);
     }
 
     fn is_liquidity_valid(&self) -> bool {

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use alloy::{
     eips::BlockId,
     primitives::{Address, BlockNumber, ChainId},
@@ -47,8 +45,8 @@ impl<P: Provider + Clone + 'static> Protocol<P> for UniswapV2Protocol {
         address: Address,
         provider: P,
         block: BlockId,
-    ) -> Result<Arc<dyn LiquidityPool<P>>, alloy::contract::Error> {
-        Ok(Arc::new(
+    ) -> Result<Box<dyn LiquidityPool<P>>, alloy::contract::Error> {
+        Ok(Box::new(
             UniswapV2Pool::new_with_provider(address, provider, block).await?,
         ))
     }

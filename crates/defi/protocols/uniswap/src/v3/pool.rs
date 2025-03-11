@@ -1,7 +1,7 @@
 use alloy::sol_types::{SolCall, SolType};
 use hashbrown::HashMap;
 use parking_lot::RwLock;
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
 
 use IUniswapV3Pool::{IUniswapV3PoolInstance, slot0Return};
 use alloy::{
@@ -32,8 +32,6 @@ use uniswap_v3_math::{
         get_tick_at_sqrt_ratio,
     },
 };
-
-use crate::v3::tick_lens::TickLens;
 
 use super::{
     quoter::{
@@ -156,10 +154,10 @@ pub struct UniswapV3Pool {
     pub fee: U24,
     pub tick_spacing: I24,
 
-    pub slot0: RwLock<Slot0>,
-    pub fee_growth_global_0_x128: RwLock<U256>,
-    pub fee_growth_global_1_x128: RwLock<U256>,
-    pub liquidity: RwLock<u128>,
+    pub slot0: Slot0,
+    pub fee_growth_global_0_x128: U256,
+    pub fee_growth_global_1_x128: U256,
+    pub liquidity: u128,
 
     pub ticks: SolidityMapping<I24, TickInfo, 5, 4>,
     pub tick_bitmap: SolidityMapping<i16, U256, 6>,
@@ -261,24 +259,20 @@ impl UniswapV3Pool {
                 .call()
                 .await?
                 .tickSpacing,
-            slot0: RwLock::new(instance.slot0().block(block).call().await?.into()),
-            fee_growth_global_0_x128: RwLock::new(
-                instance
-                    .feeGrowthGlobal0X128()
-                    .block(block)
-                    .call()
-                    .await?
-                    .feeGrowthGlobal0X128,
-            ),
-            fee_growth_global_1_x128: RwLock::new(
-                instance
-                    .feeGrowthGlobal1X128()
-                    .block(block)
-                    .call()
-                    .await?
-                    .feeGrowthGlobal1X128,
-            ),
-            liquidity: RwLock::new(instance.liquidity().block(block).call().await?.liquidity),
+            slot0: instance.slot0().block(block).call().await?.into(),
+            fee_growth_global_0_x128: instance
+                .feeGrowthGlobal0X128()
+                .block(block)
+                .call()
+                .await?
+                .feeGrowthGlobal0X128,
+            fee_growth_global_1_x128: instance
+                .feeGrowthGlobal1X128()
+                .block(block)
+                .call()
+                .await?
+                .feeGrowthGlobal1X128,
+            liquidity: instance.liquidity().block(block).call().await?.liquidity,
 
             ticks: SolidityMapping::new(),
             tick_bitmap: SolidityMapping::new(),
@@ -298,7 +292,7 @@ impl UniswapV3Pool {
         block: BlockId,
         provider: P,
     ) -> Result<(), alloy::contract::Error> {
-        let tick: i32 = self.slot0.read().tick.try_into().unwrap();
+        let tick: i32 = self.slot0.tick.try_into().unwrap();
         let tick_spacing: i32 = self.tick_spacing.try_into().unwrap();
 
         let compressed = if tick < 0 && tick % tick_spacing != 0 {
@@ -407,28 +401,26 @@ impl UniswapV3Pool {
         amount_specified: I256,
         sqrt_price_limit_x96: U256,
     ) -> anyhow::Result<U256> {
-        let slot0: Slot0 = *self.slot0.read();
-
         if zero_for_one {
             // assert!(sqrt_price_limit_x96 > MIN_SQRT_RATIO);
 
-            if sqrt_price_limit_x96 >= U256::from(slot0.sqrt_price_x96) {
+            if sqrt_price_limit_x96 >= U256::from(self.slot0.sqrt_price_x96) {
                 return Ok(U256::from(0));
             }
         } else {
             // assert!(sqrt_price_limit_x96 < MAX_SQRT_RATIO);
 
-            if sqrt_price_limit_x96 <= U256::from(slot0.sqrt_price_x96) {
+            if sqrt_price_limit_x96 <= U256::from(self.slot0.sqrt_price_x96) {
                 return Ok(U256::from(0));
             }
         }
 
         let cache = SwapCache {
-            liquidity_start: *self.liquidity.read(),
+            liquidity_start: self.liquidity,
             fee_protocol: if zero_for_one {
-                slot0.fee_protocol % 16
+                self.slot0.fee_protocol % 16
             } else {
-                slot0.fee_protocol >> 4
+                self.slot0.fee_protocol >> 4
             },
         };
 
@@ -437,12 +429,12 @@ impl UniswapV3Pool {
         let mut state = SwapState {
             amount_specified_remaining: amount_specified,
             amount_calculated: I256::ZERO,
-            sqrt_price_x96: U256::from(slot0.sqrt_price_x96),
-            tick: slot0.tick.try_into().expect("it fits"),
+            sqrt_price_x96: U256::from(self.slot0.sqrt_price_x96),
+            tick: self.slot0.tick.try_into().expect("it fits"),
             fee_growth_global_x128: if zero_for_one {
-                *self.fee_growth_global_0_x128.read()
+                self.fee_growth_global_0_x128
             } else {
-                *self.fee_growth_global_1_x128.read()
+                self.fee_growth_global_1_x128
             },
             protocol_fee: 0,
             liquidity: cache.liquidity_start,
@@ -566,7 +558,7 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
         self.exact_input_of(token, amount, block)
     }
 
-    fn apply_storage_changes(&self, changes: hashbrown::HashMap<U256, U256>) {
+    fn apply_storage_changes(&mut self, changes: hashbrown::HashMap<U256, U256>) {
         let mut changed_slots = vec![];
 
         for (slot, value) in changes {
@@ -578,14 +570,10 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
             // );
 
             match slot {
-                _ if slot == SLOT0_SLOT => *self.slot0.write() = Slot0::from_storage_value(value),
-                _ if slot == FEE_GROWTH_GLOBAL_0_X128_SLOT => {
-                    *self.fee_growth_global_0_x128.write() = value
-                }
-                _ if slot == FEE_GROWTH_GLOBAL_1_X128_SLOT => {
-                    *self.fee_growth_global_1_x128.write() = value
-                }
-                _ if slot == LIQUIDITY_SLOT => *self.liquidity.write() = value.to(),
+                _ if slot == SLOT0_SLOT => self.slot0 = Slot0::from_storage_value(value),
+                _ if slot == FEE_GROWTH_GLOBAL_0_X128_SLOT => self.fee_growth_global_0_x128 = value,
+                _ if slot == FEE_GROWTH_GLOBAL_1_X128_SLOT => self.fee_growth_global_1_x128 = value,
+                _ if slot == LIQUIDITY_SLOT => self.liquidity = value.to(),
                 _ => {
                     self.storage.insert(slot, value);
                     changed_slots.push(slot)
@@ -598,9 +586,9 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
     }
 
     fn is_liquidity_valid(&self) -> bool {
-        let sqrt_price_x96 = U256::from(self.slot0.read().sqrt_price_x96);
+        let sqrt_price_x96 = U256::from(self.slot0.sqrt_price_x96);
 
-        *self.liquidity.read() != 0
+        self.liquidity != 0
             && sqrt_price_x96 > MIN_SQRT_RATIO + U256::from(1)
             && sqrt_price_x96 < MAX_SQRT_RATIO - U256::from(1)
     }
@@ -635,22 +623,20 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
         let block: BlockId = block_number.into();
 
         let slot0 = instance.slot0().block(block).call().await?._0;
-        let self_slot0 = *self.slot0.read();
-
-        if slot0.sqrt_price_x96 != self_slot0.sqrt_price_x96 {
+        if slot0.sqrt_price_x96 != self.slot0.sqrt_price_x96 {
             bail!(
                 "sqrt_price_x96 mismatch (pool {}) on block {block_number}, real {} != {}",
                 self.address,
                 slot0.sqrt_price_x96,
-                self_slot0.sqrt_price_x96
+                self.slot0.sqrt_price_x96
             );
         }
 
-        if slot0.tick != self_slot0.tick {
+        if slot0.tick != self.slot0.tick {
             bail!("tick mismatch");
         }
 
-        if slot0.fee_protocol != self_slot0.fee_protocol {
+        if slot0.fee_protocol != self.slot0.fee_protocol {
             bail!("fee_protocol mismatch");
         }
 
@@ -660,7 +646,7 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
             .call()
             .await?
             .feeGrowthGlobal0X128
-            != *self.fee_growth_global_0_x128.read()
+            != self.fee_growth_global_0_x128
         {
             bail!("fee_growth_global_0_x128 mismatch");
         }
@@ -671,7 +657,7 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
             .call()
             .await?
             .feeGrowthGlobal1X128
-            != *self.fee_growth_global_1_x128.read()
+            != self.fee_growth_global_1_x128
         {
             bail!("fee_growth_global_1_x128 mismatch");
         }
@@ -710,32 +696,10 @@ impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
 
     async fn update_with_provider(
         &self,
-        provider: P,
-        block: BlockId,
+        _provider: P,
+        _block: BlockId,
     ) -> Result<(), alloy::contract::Error> {
-        let instance = IUniswapV3PoolInstance::new(self.address, provider);
-
-        *self.slot0.write() = instance.slot0().block(block).call().await?.into();
-
-        *self.fee_growth_global_0_x128.write() = instance
-            .feeGrowthGlobal0X128()
-            .block(block)
-            .call()
-            .await?
-            .feeGrowthGlobal0X128;
-
-        *self.fee_growth_global_1_x128.write() = instance
-            .feeGrowthGlobal1X128()
-            .block(block)
-            .call()
-            .await?
-            .feeGrowthGlobal1X128;
-
-        *self.liquidity.write() = instance.liquidity().block(block).call().await?.liquidity;
-
-        self.storage.clear();
-
-        Ok(())
+        unimplemented!()
     }
 
     fn create_payload(
@@ -840,7 +804,7 @@ mod tests {
             let pool = UniswapV3Pool::new_with_provider(*address, provider.clone(), block).await?;
 
             for amount in 1..100 {
-                let token0_out = pool.simulate_swap(
+                let token0_out = pool.exact_input_of(
                     pool.token0.address,
                     pool.token0.to_token_amount(amount as f64),
                     block,
@@ -867,7 +831,7 @@ mod tests {
                     );
                 }
 
-                let token1_out = pool.simulate_swap(
+                let token1_out = pool.exact_input_of(
                     pool.token1.address,
                     pool.token1.to_token_amount(amount as f64),
                     block,
