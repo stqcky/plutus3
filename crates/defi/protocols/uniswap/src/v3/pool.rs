@@ -172,7 +172,7 @@ pub struct UniswapV3Pool {
     pub storage: SmartContractStorage,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct TickInfo {
     pub liquidity_net: i128,
 }
@@ -344,13 +344,7 @@ impl UniswapV3Pool {
         Ok(())
     }
 
-    pub async fn exact_input_of<P: Provider>(
-        &self,
-        token: Address,
-        amount: U256,
-        block: BlockId,
-        provider: P,
-    ) -> U256 {
+    pub fn exact_input_of(&self, token: Address, amount: U256, block: BlockId) -> U256 {
         let zero_for_one = token == self.token0.address;
 
         if let Some(amount_out) = self.swap_cache.get(block, zero_for_one, amount) {
@@ -366,10 +360,7 @@ impl UniswapV3Pool {
                 } else {
                     MAX_SQRT_RATIO - U256::from(1)
                 },
-                block,
-                provider,
             )
-            .await
             .unwrap_or(U256::from(0));
 
         self.swap_cache
@@ -410,13 +401,11 @@ impl UniswapV3Pool {
         .unwrap_or(U256::ZERO)
     }
 
-    pub async fn swap<P: Provider>(
+    pub fn swap(
         &self,
         zero_for_one: bool,
         amount_specified: I256,
         sqrt_price_limit_x96: U256,
-        block: BlockId,
-        provider: P,
     ) -> anyhow::Result<U256> {
         let slot0: Slot0 = *self.slot0.read();
 
@@ -480,10 +469,7 @@ impl UniswapV3Pool {
                 self.tick_spacing.try_into().unwrap(),
                 zero_for_one,
                 &self.storage,
-                block,
-                &provider,
-            )
-            .await?;
+            )?;
 
             step.tick_next = step.tick_next.clamp(MIN_TICK, MAX_TICK);
 
@@ -534,13 +520,7 @@ impl UniswapV3Pool {
                 if step.initialized {
                     let mut liquidity_net = self
                         .ticks
-                        .get(
-                            &self.storage,
-                            &I24::unchecked_from(step.tick_next),
-                            block,
-                            &provider,
-                        )
-                        .await?
+                        .get_cached(&self.storage, &I24::unchecked_from(step.tick_next))
                         .liquidity_net;
 
                     if zero_for_one {
@@ -582,15 +562,8 @@ impl UniswapV3Pool {
 
 #[async_trait]
 impl<P: Provider + 'static> LiquidityPool<P> for UniswapV3Pool {
-    async fn simulate_swap(
-        &self,
-        token: Address,
-        amount: U256,
-        block: BlockId,
-        provider: P,
-    ) -> U256 {
-        self.exact_input_of(token, amount, block, provider).await
-        // self.exact_input_of_with_quoter(token, amount, evm)
+    fn simulate_swap(&self, token: Address, amount: U256, block: BlockId) -> U256 {
+        self.exact_input_of(token, amount, block)
     }
 
     fn apply_storage_changes(&self, changes: hashbrown::HashMap<U256, U256>) {
@@ -867,14 +840,11 @@ mod tests {
             let pool = UniswapV3Pool::new_with_provider(*address, provider.clone(), block).await?;
 
             for amount in 1..100 {
-                let token0_out = pool
-                    .simulate_swap(
-                        pool.token0.address,
-                        pool.token0.to_token_amount(amount as f64),
-                        block,
-                        provider.clone(),
-                    )
-                    .await;
+                let token0_out = pool.simulate_swap(
+                    pool.token0.address,
+                    pool.token0.to_token_amount(amount as f64),
+                    block,
+                );
 
                 let quoted_token0_out = quoter
                     .quote_exact_input_single_on_block(
@@ -897,14 +867,11 @@ mod tests {
                     );
                 }
 
-                let token1_out = pool
-                    .simulate_swap(
-                        pool.token1.address,
-                        pool.token1.to_token_amount(amount as f64),
-                        block,
-                        provider.clone(),
-                    )
-                    .await;
+                let token1_out = pool.simulate_swap(
+                    pool.token1.address,
+                    pool.token1.to_token_amount(amount as f64),
+                    block,
+                );
 
                 let quoted_token1_out = quoter
                     .quote_exact_input_single_on_block(

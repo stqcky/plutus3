@@ -181,13 +181,7 @@ impl<P: Provider + Clone + 'static> PriceOracle<P> {
         let values = futures::future::join_all(
             futures::stream::iter(pools.into_iter())
                 .map(|pool| async move {
-                    pool.simulate_swap(
-                        of_token.address,
-                        amount,
-                        BlockId::latest(),
-                        self.provider.clone(),
-                    )
-                    .await
+                    pool.simulate_swap(of_token.address, amount, BlockId::latest())
                 })
                 .collect::<Vec<_>>()
                 .await,

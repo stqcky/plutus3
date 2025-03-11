@@ -1,7 +1,4 @@
-use alloy::{
-    dyn_abi::parser::Storage, primitives::StorageValue, providers::Provider,
-    rpc::client::BatchRequest,
-};
+use alloy::{primitives::StorageValue, providers::Provider, rpc::client::BatchRequest};
 use parking_lot::RwLock;
 use revm::primitives::{Address, B256, U256, map::B256Map};
 use revm_database::BlockId;

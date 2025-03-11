@@ -4,7 +4,7 @@ use plutus_defi_erc20::ERC20;
 use plutus_defi_protocols_protocol::pool::LiquidityPool;
 use plutus_evm::{
     alloy::{eips::BlockId, providers::Provider, uint},
-    revm::primitives::{I256, U256},
+    revm::primitives::U256,
 };
 
 use crate::Opportunity;
@@ -54,36 +54,11 @@ impl<P: Provider> Display for CalculatedOpportunity<P> {
     }
 }
 
-pub async fn calculate_opportunity<P: Provider + Clone>(
+pub fn calculate_opportunity<P: Provider + Clone>(
     opportunity: Opportunity<P>,
     block: BlockId,
-    provider: P,
 ) -> Option<CalculatedOpportunity<P>> {
-    // println!("quadratic_search");
-    let amount_in = quadratic_search(&opportunity, block, provider.clone(), 10).await;
-
-    // println!("ternary search");
-    // let amount_in = optimize_profit(
-    //     &opportunity,
-    //     first_token_decimals,
-    //     block,
-    //     provider.clone(),
-    //     50,
-    // )
-    // .await;
-
-    // let amount_out_quadratic =
-    //     simulate_opportunity(&opportunity, amount_in_quadratic, block, provider.clone()).await;
-    //
-    // let amount_out_ternary =
-    //     simulate_opportunity(&opportunity, amount_in, block, provider.clone()).await;
-
-    // println!("quadratic: {amount_out_quadratic}, ternary: {amount_out_ternary}");
-
-    // tracing::info!(
-    //     "calculate_opportunity: {:?}\n{opportunity:#?}",
-    //     now.elapsed()
-    // );
+    let amount_in = quadratic_search(&opportunity, block, 10);
 
     let mut legs = vec![];
     let mut amount = amount_in;
@@ -92,10 +67,7 @@ pub async fn calculate_opportunity<P: Provider + Clone>(
     // just amount_in might be fine.
 
     for leg in opportunity {
-        let amount_out = leg
-            .pool
-            .simulate_swap(leg.token0.address, amount, block, provider.clone())
-            .await;
+        let amount_out = leg.pool.simulate_swap(leg.token0.address, amount, block);
 
         legs.push(CalculatedOpportunityLeg {
             token_in: leg.token0,
@@ -121,75 +93,66 @@ pub async fn calculate_opportunity<P: Provider + Clone>(
     }
 }
 
-async fn optimize_profit<P: Provider + Clone>(
-    opportunity: &Opportunity<P>,
-    decimals: u8,
-    block: BlockId,
-    provider: P,
-    iters: i32,
-) -> U256 {
-    let get_profit = async |x| {
-        I256::from_raw(simulate_opportunity(opportunity, x, block, provider.clone()).await)
-            - I256::from_raw(x)
-    };
+// fn optimize_profit<P: Provider>(
+//     opportunity: &Opportunity<P>,
+//     decimals: u8,
+//     block: BlockId,
+//     iters: i32,
+// ) -> U256 {
+//     let get_profit =
+//         |x| I256::from_raw(simulate_opportunity(opportunity, x, block)) - I256::from_raw(x);
+//
+//     let (locked0, locked1) = opportunity[0].pool.tokens_locked();
+//
+//     let zero_for_one = opportunity[0].pool.token0().address == opportunity[0].token0.address;
+//
+//     let locked = if zero_for_one { locked0 } else { locked1 } / uint!(10_U256);
+//
+//     let mut lower_bound = uint!(1_U256);
+//     let mut upper_bound = locked;
+//
+//     let precision = U256::from(decimals);
+//
+//     let max_iter = iters;
+//
+//     let two = uint!(2_U256);
+//     let three = uint!(3_U256);
+//
+//     for i in 0..max_iter {
+//         let point_lower = lower_bound + (upper_bound - lower_bound) / three;
+//         let point_higher = upper_bound - (upper_bound - lower_bound) / three;
+//
+//         println!(
+//             "{i}: {point_lower} {point_higher} {}",
+//             point_higher - point_lower
+//         );
+//
+//         if point_higher - point_lower <= precision {
+//             break;
+//         }
+//
+//         let (lower_profit, upper_profit) = (get_profit(point_lower), get_profit(point_higher));
+//         // tracing::info!("get_profit {:?}", now.elapsed());
+//
+//         // tracing::info!("{lower_profit:?} {upper_profit:?}");
+//
+//         if lower_profit > upper_profit {
+//             upper_bound = point_higher;
+//         } else {
+//             lower_bound = point_lower;
+//         }
+//     }
+//
+//     (lower_bound + upper_bound) / two
+// }
 
-    let (locked0, locked1) = opportunity[0].pool.tokens_locked();
-
-    let zero_for_one = opportunity[0].pool.token0().address == opportunity[0].token0.address;
-
-    let locked = if zero_for_one { locked0 } else { locked1 } / uint!(10_U256);
-
-    let mut lower_bound = uint!(1_U256);
-    let mut upper_bound = locked;
-
-    let precision = U256::from(decimals);
-
-    let max_iter = iters;
-
-    let two = uint!(2_U256);
-    let three = uint!(3_U256);
-
-    for i in 0..max_iter {
-        let point_lower = lower_bound + (upper_bound - lower_bound) / three;
-        let point_higher = upper_bound - (upper_bound - lower_bound) / three;
-
-        println!(
-            "{i}: {point_lower} {point_higher} {}",
-            point_higher - point_lower
-        );
-
-        if point_higher - point_lower <= precision {
-            break;
-        }
-
-        let (lower_profit, upper_profit) =
-            tokio::join!(get_profit(point_lower), get_profit(point_higher));
-        // tracing::info!("get_profit {:?}", now.elapsed());
-
-        // tracing::info!("{lower_profit:?} {upper_profit:?}");
-
-        if lower_profit > upper_profit {
-            upper_bound = point_higher;
-        } else {
-            lower_bound = point_lower;
-        }
-    }
-
-    (lower_bound + upper_bound) / two
-}
-
-async fn quadratic_search<P: Provider + Clone>(
+fn quadratic_search<P: Provider + Clone>(
     opportunity: &Opportunity<P>,
     block: BlockId,
-    provider: P,
     iters: i32,
 ) -> U256 {
-    let get_profit = async |x: i128| {
-        simulate_opportunity(opportunity, U256::from(x), block, provider.clone())
-            .await
-            .to::<i128>()
-            - x
-    };
+    let get_profit =
+        |x: i128| simulate_opportunity(opportunity, U256::from(x), block).to::<i128>() - x;
 
     let (locked0, locked1) = opportunity[0].pool.tokens_locked();
 
@@ -209,8 +172,7 @@ async fn quadratic_search<P: Provider + Clone>(
 
         // println!("{i}: {p1} {p2} {}", p2 - p1);
 
-        let (p1_profit, mid_profit, p2_profit) =
-            tokio::join!(get_profit(p1), get_profit(mid), get_profit(p2));
+        let (p1_profit, mid_profit, p2_profit) = (get_profit(p1), get_profit(mid), get_profit(p2));
 
         if p1_profit > mid_profit {
             last = p1;
@@ -228,19 +190,15 @@ async fn quadratic_search<P: Provider + Clone>(
     U256::from((first + last) / 2)
 }
 
-async fn simulate_opportunity<P: Provider + Clone>(
+fn simulate_opportunity<P: Provider>(
     opportunity: &Opportunity<P>,
     amount_in: U256,
     block: BlockId,
-    provider: P,
 ) -> U256 {
     let mut amount = amount_in;
 
     for leg in opportunity {
-        amount = leg
-            .pool
-            .simulate_swap(leg.token0.address, amount, block, provider.clone())
-            .await;
+        amount = leg.pool.simulate_swap(leg.token0.address, amount, block);
     }
 
     amount

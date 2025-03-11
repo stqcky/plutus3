@@ -43,13 +43,7 @@ impl DerefMut for PancakeSwapV2Pool {
 
 #[async_trait]
 impl<P: Provider + 'static> LiquidityPool<P> for PancakeSwapV2Pool {
-    async fn simulate_swap(
-        &self,
-        token: Address,
-        amount_in: U256,
-        block: BlockId,
-        _provider: P,
-    ) -> U256 {
+    fn simulate_swap(&self, token: Address, amount_in: U256, block: BlockId) -> U256 {
         let zero_for_one = token == self.token0.address;
 
         if let Some(amount_out) = self.swap_cache.get(block, zero_for_one, amount_in) {
@@ -178,14 +172,11 @@ mod tests {
             let reserves = *pool.reserves.read();
 
             for amount in 1..100 {
-                let token0_out = pool
-                    .simulate_swap(
-                        pool.token0.address,
-                        pool.token0.to_token_amount(amount as f64),
-                        block,
-                        provider.clone(),
-                    )
-                    .await;
+                let token0_out = pool.simulate_swap(
+                    pool.token0.address,
+                    pool.token0.to_token_amount(amount as f64),
+                    block,
+                );
 
                 let quoted_token0_out = router
                     .get_amount_out(
@@ -202,14 +193,11 @@ mod tests {
                     );
                 }
 
-                let token1_out = pool
-                    .simulate_swap(
-                        pool.token1.address,
-                        pool.token1.to_token_amount(amount as f64),
-                        block,
-                        provider.clone(),
-                    )
-                    .await;
+                let token1_out = pool.simulate_swap(
+                    pool.token1.address,
+                    pool.token1.to_token_amount(amount as f64),
+                    block,
+                );
 
                 let quoted_token1_out = router
                     .get_amount_out(

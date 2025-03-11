@@ -43,15 +43,8 @@ impl DerefMut for SushiSwapV3Pool {
 
 #[async_trait]
 impl<P: Provider + 'static> LiquidityPool<P> for SushiSwapV3Pool {
-    async fn simulate_swap(
-        &self,
-        token: Address,
-        amount: U256,
-        block: BlockId,
-        provider: P,
-    ) -> U256 {
-        <UniswapV3Pool as LiquidityPool<P>>::simulate_swap(&self.0, token, amount, block, provider)
-            .await
+    fn simulate_swap(&self, token: Address, amount: U256, block: BlockId) -> U256 {
+        <UniswapV3Pool as LiquidityPool<P>>::simulate_swap(&self.0, token, amount, block)
     }
 
     fn apply_storage_changes(&self, changes: hashbrown::HashMap<U256, U256>) {

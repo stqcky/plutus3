@@ -14,13 +14,7 @@ pub trait LiquidityPool<P: Provider>: Send + Sync {
     fn identifier(&self) -> &'static str;
     fn address(&self) -> Address;
 
-    async fn simulate_swap(
-        &self,
-        token: Address,
-        amount: U256,
-        block: BlockId,
-        provider: P,
-    ) -> U256;
+    fn simulate_swap(&self, token: Address, amount: U256, block: BlockId) -> U256;
 
     fn apply_storage_changes(&self, changes: HashMap<U256, U256>);
     async fn update_with_provider(

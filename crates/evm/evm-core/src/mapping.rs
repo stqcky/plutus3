@@ -61,6 +61,33 @@ where
         Ok(value)
     }
 
+    pub fn get_cached(&self, storage: &SmartContractStorage, k: &K) -> V
+    where
+        V: Default,
+    {
+        if let Some(&value) = self.mapping.read().get(k) {
+            return value;
+        }
+
+        let slot = self.get_value_storage_slot(k);
+        self.discover_slot(*k, slot);
+
+        let Some(storage_value) = storage.get_consecutive_cached(slot, VALUE_SLOT_SIZE) else {
+            return V::default();
+        };
+
+        let value = V::decode(
+            storage_value
+                .into_iter()
+                .flat_map(|value| value.to_le_bytes::<{ U256::BYTES }>())
+                .collect(),
+        );
+
+        self.mapping.write().insert(*k, value);
+
+        value
+    }
+
     pub async fn fetch_many<P: Provider>(
         &self,
         storage: &SmartContractStorage,

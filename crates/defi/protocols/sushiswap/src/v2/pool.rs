@@ -43,15 +43,8 @@ impl DerefMut for SushiSwapV2Pool {
 
 #[async_trait]
 impl<P: Provider + 'static> LiquidityPool<P> for SushiSwapV2Pool {
-    async fn simulate_swap(
-        &self,
-        token: Address,
-        amount: U256,
-        block: BlockId,
-        provider: P,
-    ) -> U256 {
-        <UniswapV2Pool as LiquidityPool<P>>::simulate_swap(&self.0, token, amount, block, provider)
-            .await
+    fn simulate_swap(&self, token: Address, amount: U256, block: BlockId) -> U256 {
+        <UniswapV2Pool as LiquidityPool<P>>::simulate_swap(&self.0, token, amount, block)
     }
 
     fn apply_storage_changes(&self, changes: hashbrown::HashMap<U256, U256>) {
@@ -150,14 +143,11 @@ mod tests {
             let reserves = pool.reserves.read();
 
             for amount in 1..100 {
-                let token0_out = pool
-                    .simulate_swap(
-                        pool.token0.address,
-                        pool.token0.to_token_amount(amount as f64),
-                        block,
-                        provider.clone(),
-                    )
-                    .await;
+                let token0_out = pool.simulate_swap(
+                    pool.token0.address,
+                    pool.token0.to_token_amount(amount as f64),
+                    block,
+                );
 
                 let quoted_token0_out = router
                     .get_amount_out(
@@ -174,14 +164,11 @@ mod tests {
                     );
                 }
 
-                let token1_out = pool
-                    .simulate_swap(
-                        pool.token1.address,
-                        pool.token1.to_token_amount(amount as f64),
-                        block,
-                        provider.clone(),
-                    )
-                    .await;
+                let token1_out = pool.simulate_swap(
+                    pool.token1.address,
+                    pool.token1.to_token_amount(amount as f64),
+                    block,
+                );
 
                 let quoted_token1_out = router
                     .get_amount_out(

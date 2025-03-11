@@ -63,10 +63,7 @@ fn swap_benchmark(c: &mut Criterion) -> anyhow::Result<()> {
             BenchmarkId::from_parameter(amount),
             &amount,
             |b: &mut Bencher, amount: &U256| {
-                b.to_async(&runtime).iter(async || {
-                    pool.exact_input_of(token0.address, *amount, block, &provider)
-                        .await
-                });
+                b.iter(|| pool.exact_input_of(token0.address, *amount, block));
             },
         );
     }
@@ -114,5 +111,5 @@ fn create_benchmark(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, create_benchmark);
+criterion_group!(benches, swap_benchmark);
 criterion_main!(benches);

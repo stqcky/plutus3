@@ -1,16 +1,9 @@
 use calculation::{CalculatedOpportunity, calculate_opportunity};
 use core::f64;
-use futures::{executor::block_on, future};
 use hashbrown::{HashMap, HashSet};
 use rayon::prelude::*;
-use simple_cycles::{create_simple_cycles, dedup_cycles, dedup_opportunities};
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
-    time::Instant,
-};
+use simple_cycles::{create_simple_cycles, dedup_opportunities};
+use std::{sync::Arc, time::Instant};
 
 use petgraph::{
     dot::Dot,
@@ -26,7 +19,6 @@ use plutus_evm::{
         map::{AddressMap, AddressSet},
     },
 };
-use tokio::sync::Semaphore;
 
 pub mod calculation;
 pub mod simple_cycles;
@@ -83,11 +75,10 @@ impl std::fmt::Display for WeightedPool {
 }
 
 impl<P: Provider + Clone + 'static> TokenGraph<P> {
-    pub async fn new(
+    pub fn new(
         pools: Vec<Arc<dyn LiquidityPool<P>>>,
         amount: f64,
         block: BlockId,
-        provider: P,
     ) -> anyhow::Result<Self> {
         let mut graph = InnerTokenGraph::new();
 
@@ -102,15 +93,7 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
 
         let token_map = init_nodes(tokens, &mut graph);
 
-        let pool_edge_map = init_edges(
-            pools.clone(),
-            amount,
-            &mut graph,
-            &token_map,
-            block,
-            provider,
-        )
-        .await?;
+        let pool_edge_map = init_edges(pools.clone(), amount, &mut graph, &token_map, block)?;
 
         tracing::info!("node count: {}", graph.node_count());
         tracing::info!("edge count: {}", graph.edge_count());
@@ -139,10 +122,9 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         tokens
     }
 
-    pub async fn apply_state(
+    pub fn apply_state(
         &mut self,
         traces: Vec<AddressMap<HashMap<U256, U256>>>,
-        provider: P,
         block: BlockId,
     ) -> (AddressSet, AddressSet)
     where
@@ -172,9 +154,6 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             affected_pools.insert(pool.address());
 
             pool.apply_storage_changes(storage_changes);
-            // pool.update_with_provider(provider.clone(), block)
-            //     .await
-            //     .unwrap();
             let (edge0, edge1) = self.pool_edge_map[&address];
 
             let tokens = pool.tokens();
@@ -183,40 +162,25 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             affected_tokens.insert(token0.address);
             affected_tokens.insert(token1.address);
 
-            self.graph.edge_weight_mut(edge0).unwrap().weight = calculate_edge(
-                pool.as_ref(),
-                &token0,
-                &token1,
-                self.amount,
-                block,
-                provider.clone(),
-            )
-            .await
-            .pool
-            .weight;
+            self.graph.edge_weight_mut(edge0).unwrap().weight =
+                calculate_edge(pool.as_ref(), &token0, &token1, self.amount, block)
+                    .pool
+                    .weight;
 
-            self.graph.edge_weight_mut(edge1).unwrap().weight = calculate_edge(
-                pool.as_ref(),
-                &token1,
-                &token0,
-                self.amount,
-                block,
-                provider.clone(),
-            )
-            .await
-            .pool
-            .weight;
+            self.graph.edge_weight_mut(edge1).unwrap().weight =
+                calculate_edge(pool.as_ref(), &token1, &token0, self.amount, block)
+                    .pool
+                    .weight;
         }
 
         (affected_tokens, affected_pools)
     }
 
-    pub async fn find_opportunities(
+    pub fn find_opportunities(
         &self,
         target_tokens: AddressSet,
         target_pools: AddressSet,
         block: BlockId,
-        provider: P,
     ) -> anyhow::Result<Vec<CalculatedOpportunity<P>>> {
         let now = Instant::now();
         let opportunities = self.simple_finding(target_tokens, target_pools);
@@ -224,57 +188,14 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
 
         tracing::info!("opportunity count: {}", opportunities.len());
 
-        // let _opportunities = opportunities;
-        // let mut opportunities = vec![];
-        //
-        // let now = Instant::now();
-        // for opportunity in _opportunities {
-        //     if let Some(c) = calculate_opportunity(opportunity, block, provider.clone()).await {
-        //         opportunities.push(c);
-        //     }
-        // }
-
-        // let now = Instant::now();
-        // let opportunities = opportunities
-        //     .into_par_iter()
-        //     .map_init(
-        //         || provider.clone(),
-        //         |provider, opportunity| {
-        //             block_on(calculate_opportunity(opportunity, block, provider.clone()))
-        //         },
-        //     )
-        //     .collect::<Vec<_>>()
-        //     .into_iter()
-        //     .filter_map(|x| x)
-        //     .collect::<Vec<_>>();
-
         let now = Instant::now();
-        // let semaphore = Arc::new(Semaphore::new(30));
-        let i = Arc::new(AtomicUsize::new(0));
-        let tasks: Vec<_> = opportunities
-            .into_iter()
-            .map(|opportunity| {
-                let provider = provider.clone();
-                // let semaphore = semaphore.clone();
-                let i = i.clone();
-
-                tokio::spawn(async move {
-                    // let _permit = semaphore.acquire_owned().await.unwrap();
-                    // let now = Instant::now();
-                    // let task = i.fetch_add(1, Ordering::SeqCst);
-                    // tracing::info!("starting task {task}");
-                    let a = calculate_opportunity(opportunity, block, provider).await;
-                    // tracing::info!("task {task} in {:?}", now.elapsed());
-                    a
-                })
-            })
-            .collect();
-
-        let opportunities: Vec<_> = future::try_join_all(tasks)
-            .await?
+        let opportunities = opportunities
+            .into_par_iter()
+            .map(|opportunity| calculate_opportunity(opportunity, block))
+            .collect::<Vec<_>>()
             .into_iter()
             .filter_map(|x| x)
-            .collect();
+            .collect::<Vec<_>>();
 
         tracing::info!("calculations took {:?}", now.elapsed());
 
@@ -305,7 +226,6 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
         target_tokens: AddressSet,
         target_pools: AddressSet,
     ) -> Vec<Vec<OpportunityLeg<P>>> {
-        let now = Instant::now();
         let cycles: Vec<_> = target_tokens
             .iter()
             .flat_map(|address| self.cycles[address].clone())
@@ -316,7 +236,6 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
 
         let best_pools = self.precompute_cycle_pools();
 
-        let now = Instant::now();
         let mut opportunities: Vec<_> = cycles
             .par_iter()
             .filter_map(|cycle| {
@@ -345,8 +264,6 @@ impl<P: Provider + Clone + 'static> TokenGraph<P> {
             })
             .collect();
         // println!("finding: {:?}", now.elapsed());
-
-        let now = Instant::now();
 
         opportunities.sort_by(|a, b| match PartialOrd::partial_cmp(&b.0, &a.0) {
             Some(ordering) => ordering,
@@ -396,52 +313,27 @@ fn init_nodes(tokens: Vec<ERC20>, graph: &mut InnerTokenGraph) -> AddressMap<Nod
     )
 }
 
-async fn init_edges<P: Provider + Clone + 'static>(
+fn init_edges<P: Provider>(
     pools: Vec<Arc<dyn LiquidityPool<P>>>,
     amount: f64,
     graph: &mut InnerTokenGraph,
     token_map: &AddressMap<NodeIndex>,
     block: BlockId,
-    provider: P,
 ) -> anyhow::Result<AddressMap<(EdgeIndex, EdgeIndex)>> {
     let mut edge_map = AddressMap::default();
 
-    let semaphore = Arc::new(Semaphore::new(24));
-    let tasks: Vec<_> = pools
-        .into_iter()
+    let edge_pairs: Vec<_> = pools
+        .into_par_iter()
         .map(|pool| {
-            let semaphore = semaphore.clone();
-            let provider = provider.clone();
+            let tokens = pool.tokens();
+            let (token0, token1) = (tokens.0.to_owned(), tokens.1.to_owned());
 
-            tokio::spawn(async move {
-                let _permit = semaphore.acquire_owned().await.unwrap();
-
-                let tokens = pool.tokens();
-                let (token0, token1) = (tokens.0.to_owned(), tokens.1.to_owned());
-
-                tokio::join!(
-                    calculate_edge(
-                        pool.as_ref(),
-                        &token0,
-                        &token1,
-                        amount,
-                        block,
-                        provider.clone(),
-                    ),
-                    calculate_edge(
-                        pool.as_ref(),
-                        &token1,
-                        &token0,
-                        amount,
-                        block,
-                        provider.clone(),
-                    )
-                )
-            })
+            (
+                calculate_edge(pool.as_ref(), &token0, &token1, amount, block),
+                calculate_edge(pool.as_ref(), &token1, &token0, amount, block),
+            )
         })
         .collect();
-
-    let edge_pairs: Vec<_> = future::try_join_all(tasks).await?.into_iter().collect();
 
     for (edge0, edge1) in edge_pairs {
         let pool_address = edge0.pool.pool;
@@ -470,18 +362,15 @@ struct CalculatedEdge {
     pool: WeightedPool,
 }
 
-async fn calculate_edge<P: Provider>(
+fn calculate_edge<P: Provider>(
     pool: &dyn LiquidityPool<P>,
     token0: &ERC20,
     token1: &ERC20,
     amount: f64,
     block: BlockId,
-    provider: P,
 ) -> CalculatedEdge {
     let amount_in = token0.to_token_amount(amount);
-    let amount_out = pool
-        .simulate_swap(token0.address, amount_in, block, provider)
-        .await;
+    let amount_out = pool.simulate_swap(token0.address, amount_in, block);
     // let weight = -(f64::from(amount_out) / f64::from(amount_in)).log10();
     let weight = f64::from(amount_out) / f64::from(amount_in);
 

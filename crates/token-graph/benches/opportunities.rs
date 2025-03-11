@@ -128,9 +128,7 @@ fn criterion_benchmark(c: &mut Criterion) -> anyhow::Result<()> {
             .await
             .unwrap();
 
-        let token_graph = TokenGraph::new(pools.clone(), 0.001, block.into(), provider.clone())
-            .await
-            .unwrap();
+        let token_graph = TokenGraph::new(pools.clone(), 0.001, block.into()).unwrap();
 
         // let opportunity: Opportunity<>
 
@@ -154,8 +152,7 @@ fn criterion_benchmark(c: &mut Criterion) -> anyhow::Result<()> {
     // });
 
     c.bench_function("calculate_opportunity", |b| {
-        b.to_async(&runtime)
-            .iter(|| calculate_opportunity(opportunity.clone(), block.into(), provider.clone()))
+        b.iter(|| calculate_opportunity(opportunity.clone(), block.into()))
     });
 
     // let mut group = c.benchmark_group("small");

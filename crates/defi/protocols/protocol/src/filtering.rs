@@ -75,15 +75,7 @@ impl TokenValueCache {
         let mut values = vec![];
 
         for pool in pools {
-            values.push(
-                pool.simulate_swap(
-                    of_token.address,
-                    of_token.to_token_amount(1.0),
-                    block,
-                    provider.clone(),
-                )
-                .await,
-            );
+            values.push(pool.simulate_swap(of_token.address, of_token.to_token_amount(1.0), block));
         }
 
         let best_value = values.into_iter().max();

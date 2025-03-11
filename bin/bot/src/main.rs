@@ -6,7 +6,7 @@ use std::{sync::Arc, time::Instant};
 use alloy::{
     eips::BlockId,
     network::EthereumWallet,
-    primitives::{Address, U256},
+    primitives::U256,
     providers::{Provider, ProviderBuilder, WalletProvider},
     rpc::client::ClientBuilder,
     signers::local::PrivateKeySigner,
@@ -107,8 +107,7 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("creating token graph");
     let now = Instant::now();
-    let mut token_graph =
-        TokenGraph::new(pools.clone(), 0.001, start_block.into(), provider.clone()).await?;
+    let mut token_graph = TokenGraph::new(pools.clone(), 0.001, start_block.into())?;
     tracing::info!("token graph created in {:?}", now.elapsed());
 
     let price_oracle = PriceOracle::new(
@@ -149,10 +148,9 @@ async fn main() -> anyhow::Result<()> {
         );
         let current_block: BlockId = current_block.into();
 
-        let now_apply_state = Instant::now();
-        let (affected_tokens, affected_pools) = token_graph
-            .apply_state(state_change.changes, provider.clone(), current_block)
-            .await;
+        // let now_apply_state = Instant::now();
+        let (affected_tokens, affected_pools) =
+            token_graph.apply_state(state_change.changes, current_block);
         // tracing::info!("token_graph.apply_state in {:?}", now_apply_state.elapsed());
 
         if catching_up {
@@ -167,14 +165,12 @@ async fn main() -> anyhow::Result<()> {
         }
 
         let now_find_opportunities = Instant::now();
-        let opportunities = token_graph
-            .find_opportunities(
-                affected_tokens.clone(),
-                affected_pools,
-                current_block,
-                provider.clone(),
-            )
-            .await?;
+        let opportunities = token_graph.find_opportunities(
+            affected_tokens.clone(),
+            affected_pools,
+            current_block,
+        )?;
+
         tracing::info!(
             "token_graph.find_opportunities: {:?}",
             now_find_opportunities.elapsed()
